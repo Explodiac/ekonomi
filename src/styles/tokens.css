@@ -1,0 +1,120 @@
+/**
+ * Tasarım token'ları — Copilot renk sistemi. KOYU TEMA BİRİNCİL.
+ *
+ * Copilot'un renk yoğunluğu koyu zeminde çalışır; açık zeminde çorba olur.
+ * Bu yüzden :root = KOYU (varsayılan). Açık tema korunur ama ikincil
+ * (.light / [data-theme="light"]).
+ *
+ * ── RENK DÖRT İŞTEN BİRİNİ YAPAR, KARIŞMAZ ──
+ *   1. Kategori kimliği → rozet, ikon, kategori barı            (--cat-*)
+ *   2. Yön → giren/çıkan, SADECE sayı ve delta çipi            (--flow-in / --flow-out)
+ *   3. Bütçe durumu → SADECE bütçe barı, doluluğa göre rampa   (--budget-ok/mid/near/over)
+ *   4. Etkileşim → mavi, seçili / link / aktif                 (--accent / --accent-bg)
+ *
+ * Kart zemini, sayfa zemini, kutu zemini ASLA rol rengi taşımaz
+ * (--bg / --surface / --surface-2 nötr kalır).
+ * Bir öğe aynı anda İKİ rol taşımaz: kategori rozetli bir satırın rakamı NÖTR
+ * (--ink), yönü yalnız işaretle verilir.
+ */
+
+:root {
+  /* ── zemin ve yüzey — rol taşımaz ── */
+  --bg:          #080D16;
+  --surface:     #0F1620;
+  --surface-2:   #151D29;   /* iç kutular, seçili satır */
+  --border:      #1E2836;
+  --fill-track:  #1A2331;   /* ilerleme çubuğu yolu */
+
+  /* ── mürekkep ── */
+  --ink:         #F0F3F8;   /* birincil metin, vurgulu veri */
+  --ink-2:       #94A3B8;   /* ikincil metin */
+  --ink-3:       #64748B;   /* etiket, sessiz metin */
+  --ink-4:       #3A4658;   /* kesikli çizgi, pasif bar */
+
+  /* ── Rol 4 — etkileşim ── */
+  --accent:      #5B8DEF;
+  --accent-bg:   #1E3A6B;   /* seçili menü zemini */
+
+  /* ── Rol 2 — yön (SADECE sayı ve delta çipi) ── */
+  --flow-in:     #4ADE80;
+  --flow-out:    #F87171;
+
+  /* ── Rol 3 — bütçe durumu rampası (SADECE bütçe barları) ── */
+  --budget-ok:   #4ADE80;   /* %0-60 */
+  --budget-mid:  #FBBF24;   /* %60-85 */
+  --budget-near: #FB923C;   /* %85-100 */
+  --budget-over: #F87171;   /* %100+ */
+
+  /* ── Rol 1 — kategori kimliği (metin + %15 alfa rozet zemini) ──
+     Copilot pill: küçük ikon + BÜYÜK HARF ad, kategori rengi metin, alfa zemin. */
+  --cat-home:      #3B82F6;  --cat-home-bg:      rgba(59,130,246,.15);
+  --cat-food:      #F97316;  --cat-food-bg:      rgba(249,115,22,.15);
+  --cat-market:    #22C55E;  --cat-market-bg:    rgba(34,197,94,.15);
+  --cat-transport: #EAB308;  --cat-transport-bg: rgba(234,179,8,.15);
+  --cat-shopping:  #D946EF;  --cat-shopping-bg:  rgba(217,70,239,.15);
+  --cat-health:    #14B8A6;  --cat-health-bg:    rgba(20,184,166,.15);
+  --cat-fun:       #EF4444;  --cat-fun-bg:       rgba(239,68,68,.15);
+  --cat-sub:       #8B5CF6;  --cat-sub-bg:       rgba(139,92,246,.15);
+  --cat-edu:       #06B6D4;  --cat-edu-bg:       rgba(6,182,212,.15);
+  --cat-other:     #94A3B8;  --cat-other-bg:     rgba(148,163,184,.15);
+
+  /* ── yarıçap (temadan bağımsız) ── */
+  --r-card:   18px;
+  --r-tile:   9px;
+  --r-pill:   6px;   /* Copilot kategori rozeti */
+  --r-bar:    3px;
+  --r-button: 12px;
+
+  /* ── boşluk ölçeği ── */
+  --s1: 4px;  --s2: 8px;  --s3: 12px;
+  --s4: 16px; --s5: 20px; --s6: 24px; --s7: 32px;
+
+  /* ortak içerik genişliği */
+  --content-max: 1400px;
+}
+
+/* ══ AÇIK TEMA (ikincil) — aynı roller, doygunluk düşük, zemin açık ══
+   Kategori rozetlerinde bg alfası .12, metin rengi ~%20 koyulaştırılmış. */
+.light,
+[data-theme="light"] {
+  --bg:          #EDF1F7;
+  --surface:     #FFFFFF;
+  --surface-2:   #F1F4F9;
+  --border:      #E2E8F0;
+  --fill-track:  #E8EDF3;
+
+  --ink:         #0F1620;
+  --ink-2:       #475569;
+  --ink-3:       #64748B;
+  --ink-4:       #C2CCD8;
+
+  --accent:      #2563EB;
+  --accent-bg:   #DBEAFE;
+
+  --flow-in:     #16A34A;
+  --flow-out:    #DC2626;
+
+  --budget-ok:   #16A34A;
+  --budget-mid:  #CA8A04;
+  --budget-near: #EA580C;
+  --budget-over: #DC2626;
+
+  --cat-home:      #2563EB;  --cat-home-bg:      rgba(59,130,246,.12);
+  --cat-food:      #EA580C;  --cat-food-bg:      rgba(249,115,22,.12);
+  --cat-market:    #16A34A;  --cat-market-bg:    rgba(34,197,94,.12);
+  --cat-transport: #CA8A04;  --cat-transport-bg: rgba(234,179,8,.12);
+  --cat-shopping:  #C026D3;  --cat-shopping-bg:  rgba(217,70,239,.12);
+  --cat-health:    #0D9488;  --cat-health-bg:    rgba(20,184,166,.12);
+  --cat-fun:       #DC2626;  --cat-fun-bg:       rgba(239,68,68,.12);
+  --cat-sub:       #7C3AED;  --cat-sub-bg:       rgba(139,92,246,.12);
+  --cat-edu:       #0891B2;  --cat-edu-bg:       rgba(6,182,212,.12);
+  --cat-other:     #64748B;  --cat-other-bg:     rgba(148,163,184,.12);
+  /* Eski-ad alias'ları var() olduğu için otomatik bu değerlere çözülür. */
+}
+
+/* Tüm tutarlarda tabular-nums; kuruş gösterilmez. */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* İkincil aksiyon ikonları (ayar/sil): --ink-3, hover'da --ink. Tek yerden. */
+.icon-btn { color: var(--ink-3); border-radius: var(--r-tile); }
+.icon-btn:hover { color: var(--ink); }
