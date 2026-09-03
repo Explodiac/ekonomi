@@ -3,7 +3,9 @@
 import { useState, useEffect, useMemo } from "react"
 import Link from "next/link"
 import { supabase, ensureHouseholdExists } from "@/lib/supabase"
-import { Loader2, ShieldCheck, Target, ArrowUpRight } from "lucide-react"
+import { Loader2, ShieldCheck, Target, ArrowUpRight, ShoppingBag } from "lucide-react"
+import { buildPurchasePlan } from "@/lib/purchase-plan"
+import { computePurchasePlanContext } from "@/lib/purchase-plan-data"
 import { deriveAccountBalances, today } from "@/lib/balance"
 import { buildUpcoming, monthName, monthLocative, type UpcomingResult, type UpcomingItem } from "@/lib/upcoming"
 import { NetWorthSummary } from "@/components/varlik/net-worth-summary"
@@ -70,6 +72,8 @@ export default function DashboardPage() {
     const [negativeCarry, setNegativeCarry] = useState(true)
     const [appSettings, setAppSettings] = useState<AppSettings | null>(null)
     const [goals, setGoals] = useState<Goal[]>([])
+    // Planlı alımlar — "Sıradaki alım" satırı için (yalnız status='planli' çekilir).
+    const [purchasePlans, setPurchasePlans] = useState<any[]>([])
     // Ham hedef katkıları (goal_contributions). Runway ve Hedefler bloğu tek kaynaktan.
     const [goalContribs, setGoalContribs] = useState<{ goal_id: string; period: string; amount: number }[]>([])
     // Taksit bitişini hedefe yönlendirme akışı (1b-4). Açıksa hangi kalkan yük.
@@ -83,12 +87,12 @@ export default function DashboardPage() {
             const hhId = await ensureHouseholdExists(user.id)
             if (!hhId) return
 
-            const [accRes, txRes, subRes, instRes, contractRes, catRes, bpRes, hhRes, goalRes, goalContribRes] = await Promise.all([
+            const [accRes, txRes, subRes, instRes, contractRes, catRes, bpRes, hhRes, goalRes, goalContribRes, planRes] = await Promise.all([
                 supabase.from('accounts')
                     .select('id, name, type, balance, opening_balance, credit_limit')
                     .eq('household_id', hhId),
                 supabase.from('transactions')
-                    .select('id, account_id, category_id, amount, type, cash_date, description, source_type, source_id, transfer_direction, categories(name)')
+                    .select('id, account_id, category_id, amount, type, cash_date, description, source_type, spend_nature, source_id, transfer_direction, categories(name)')
                     .eq('household_id', hhId),
                 supabase.from('subscriptions')
                     .select('id, name, amount, frequency, next_payment_date, status')
@@ -113,6 +117,9 @@ export default function DashboardPage() {
                 supabase.from('goal_contributions')
                     .select('goal_id, period, amount')
                     .eq('household_id', hhId),
+                supabase.from('purchase_plans')
+                    .select('id, name, amount, priority, payment_plan, installment_count, desired_by, category_id, status')
+                    .eq('household_id', hhId).eq('status', 'planli'),
             ])
 
             const accountList = accRes.data || []
@@ -154,6 +161,7 @@ export default function DashboardPage() {
             setNegativeCarry(hhRes.data?.negative_carry ?? true)
             setGoals((goalRes.data || []) as Goal[])
             setGoalContribs((goalContribRes.data || []).map((c: any) => ({ goal_id: c.goal_id, period: c.period, amount: Number(c.amount) })))
+            setPurchasePlans(planRes.data || [])
             setBalances(derived)
             setProjection(projectionResult)
             setUpcoming(upcomingResult)
@@ -232,6 +240,30 @@ export default function DashboardPage() {
                 .map(g => ({ saved: Number(g.saved_tl || 0) + (contribByGoal.get(g.id) ?? 0), sourceAccountId: g.source_account_id ?? null })),
         })
     }, [accounts, balances, transactions, goals, contribByGoal])
+
+    // Sıradaki alım — planlı alımların önerilen aya göre en yakını. Motor burada da
+    // koşar ama girdiler mevcut projection/upcoming'den gelir (ek ağır hesap yok);
+    // tek ek sorgu purchase_plans. Planlı alım yoksa null → satır hiç görünmez.
+    const nextPurchase = useMemo(() => {
+        if (!projection || !upcoming || purchasePlans.length === 0) return null
+        const ctx = computePurchasePlanContext({
+            projection, upcoming, transactions: transactions as any,
+            goals: goals as any, currentMonth: currentMonthKey,
+        })
+        const plan = buildPurchasePlan({
+            from: currentMonthKey, months: 24, monthlyRoom: ctx.monthlyRoomBase,
+            reliefs: ctx.reliefs, loads: ctx.loads,
+            plans: purchasePlans.map((p: any) => ({
+                id: p.id, name: p.name, amount: Number(p.amount), priority: p.priority,
+                paymentPlan: p.payment_plan, installmentCount: p.installment_count,
+                desiredBy: p.desired_by, categoryId: p.category_id, status: 'planli' as const,
+            })),
+        })
+        const placed = plan.scheduled.filter(s => s.recommendedMonth)
+        if (!placed.length) return null
+        const next = placed.reduce((a, b) => (a.recommendedMonth! <= b.recommendedMonth! ? a : b))
+        return { name: next.name, month: next.recommendedMonth! }
+    }, [projection, upcoming, transactions, goals, purchasePlans, currentMonthKey])
 
     // Eyleme bağlı öneri: bir taksit bitiyor VE aktif hedef varsa.
     const reliefSuggestion = useMemo(() => {
@@ -392,8 +424,8 @@ export default function DashboardPage() {
                         {next14.length > 0 && (
                             <div className="order-4 lg:order-none"><Next14Card items={next14} /></div>
                         )}
-                        {(goalView.count > 0 || runway.runwayFree !== null) && (
-                            <div className="order-7 lg:order-none"><GoalsCard view={goalView} runway={runway} /></div>
+                        {(goalView.count > 0 || runway.runwayFree !== null || nextPurchase) && (
+                            <div className="order-7 lg:order-none"><GoalsCard view={goalView} runway={runway} nextPurchase={nextPurchase} /></div>
                         )}
                     </div>
                 </div>
@@ -647,15 +679,19 @@ function Next14Card({ items }: { items: UpcomingItem[] }) {
 
 /** SAĞ 4 — Hedefler. computeGoalProgress ile (Hedefler ekranıyla tek kaynak):
  *  bu ay gerçekleşen katkı + toplam kalan + ilerleme + dayanma + en yakın ETA. */
-function GoalsCard({ view, runway }: {
+function GoalsCard({ view, runway, nextPurchase }: {
     view: {
         savedThisMonth: number; plannedMonthly: number; remainingTotal: number; count: number
         nearest: { name: string; etaText: string; unit: string } | null
     }
     runway: { runwayFree: number | null; runwayWithGoals: number | null }
+    nextPurchase: { name: string; month: string } | null
 }) {
     const pct = view.plannedMonthly > 0 ? Math.min(100, (view.savedThisMonth / view.plannedMonthly) * 100) : 0
     const bothDiffer = runway.runwayFree !== null && runway.runwayWithGoals !== null && runway.runwayWithGoals !== runway.runwayFree
+    const nextMonthText = nextPurchase
+        ? monthName(nextPurchase.month) + (nextPurchase.month.slice(0, 4) !== String(new Date().getFullYear()) ? ` ${nextPurchase.month.slice(0, 4)}` : '')
+        : null
     return (
         <Card className="p-[22px]">
             <CardHead title="Hedefler" href="/hedefler" link="Tüm hedefler" />
@@ -687,6 +723,14 @@ function GoalsCard({ view, runway }: {
                             {view.nearest.name}: <span style={{ color: 'var(--ink)', fontWeight: 500 }}>bu hızla {view.nearest.etaText}</span>
                         </span>
                     </div>
+                )}
+                {nextPurchase && (
+                    <Link href="/alim-listesi" className="flex items-center gap-[var(--s3)] transition-opacity hover:opacity-80">
+                        <ShoppingBag className="h-4 w-4 shrink-0" style={{ color: 'var(--ink-3)' }} />
+                        <span className="truncate" style={{ fontSize: 13, color: 'var(--ink-2)' }}>
+                            Sıradaki alım: <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{nextPurchase.name} · {nextMonthText}</span>
+                        </span>
+                    </Link>
                 )}
             </div>
         </Card>

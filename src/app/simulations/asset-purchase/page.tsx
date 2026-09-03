@@ -142,9 +142,18 @@ export default function AssetPurchasePage() {
 
     return (
         <div className="w-full pb-10">
-            <div className="mb-[var(--s4)] space-y-1">
-                <h1 style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink)' }}>Bu alımı yaparsam</h1>
-                <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>Bir alımın aylık nefes payına — ödeme gücüne — etkisi.</p>
+            <div className="mb-[var(--s4)] flex items-start justify-between gap-[var(--s3)]">
+                <div className="space-y-1">
+                    <h1 style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink)' }}>Bu alımı yaparsam</h1>
+                    <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>Bir alımın aylık nefes payına — ödeme gücüne — etkisi.</p>
+                </div>
+                <Link
+                    href={`/alim-listesi?add=1&amount=${amount}&count=${count}&extra=${extraFixed}`}
+                    className="shrink-0 whitespace-nowrap px-[var(--s3)] py-[var(--s2)]"
+                    style={{ background: 'var(--surface-2)', color: 'var(--ink)', borderRadius: 'var(--r-button)', fontSize: 13, fontWeight: 600 }}
+                >
+                    + Alım listesine ekle
+                </Link>
             </div>
 
             <div className="flex flex-col gap-[var(--s3)]">
