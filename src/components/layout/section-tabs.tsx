@@ -71,6 +71,11 @@ export const varlikTabs: SectionTab[] = [
     { name: "Alım simüle et", href: "/simulations/asset-purchase", secondary: true },
 ]
 
+export const hedeflerTabs: SectionTab[] = [
+    { name: "Hedefler", href: "/hedefler" },
+    { name: "Alım listesi", href: "/alim-listesi" },
+]
+
 export const ayarTabs: SectionTab[] = [
     { name: "Kategoriler", href: "/settings" },
     { name: "Bütçe", href: "/budget" },

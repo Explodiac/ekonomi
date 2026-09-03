@@ -16,7 +16,7 @@ export type NavItem = {
 export const mainNav: NavItem[] = [
     { name: "Bugün", href: "/dashboard", icon: LayoutDashboard },
     { name: "Hareketler", href: "/hareketler", icon: ArrowLeftRight, match: ["/expenses", "/incomes"] },
-    { name: "Hedefler", href: "/hedefler", icon: Target, match: ["/goals"] },
+    { name: "Hedefler", href: "/hedefler", icon: Target, match: ["/goals", "/alim-listesi"] },
     { name: "Akış", href: "/akis", icon: Activity, match: ["/reports"] },
     { name: "Nakit", href: "/nakit", icon: Banknote },
     { name: "Yaklaşan", href: "/yaklasan", icon: CalendarRange },
