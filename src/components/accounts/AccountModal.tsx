@@ -35,6 +35,10 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
     const [cutDate, setCutDate] = useState("")
     const [dueDate, setDueDate] = useState("")
     const [interestRate, setInterestRate] = useState("")
+    // Kullanıcı aylık ya da yıllık girebilir; DB'de daima YILLIK saklanır. Dönüşüm
+    // basit bölme/çarpma (×12 / ÷12) — bileşik değil; Türkiye'de kart faizi aylık
+    // ilan edilir, aylık girildiğinde birebir geri döner. Varsayılan: aylık.
+    const [interestUnit, setInterestUnit] = useState<'monthly' | 'annual'>('monthly')
 
     const [isLoading, setIsLoading] = useState(false)
     const [householdId, setHouseholdId] = useState<string | null>(null)
@@ -57,7 +61,9 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                 setCreditLimit(account.credit_limit?.toString() || "")
                 setCutDate(account.cut_date?.toString() || "")
                 setDueDate(account.due_date?.toString() || "")
-                setInterestRate(account.interest_rate != null ? account.interest_rate.toString() : "")
+                // Saklanan yıllık; aylık gösterip düzenlemesi için ÷12 (basit).
+                setInterestUnit('monthly')
+                setInterestRate(account.interest_rate != null ? String(Math.round((account.interest_rate / 12) * 100) / 100) : "")
 
                 if (account.type === 'credit_card') {
                     // Show Available Limit to user: Available = Limit + Balance
@@ -75,6 +81,7 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                 setCutDate("")
                 setDueDate("")
                 setInterestRate("")
+                setInterestUnit('monthly')
             }
         }
     }, [isOpen, account])
@@ -112,9 +119,11 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
             const dbType = typeMap[type] || "bank"
             const rawBalance = parseFloat(balance) || 0
             const rawLimit = parseFloat(creditLimit) || 0
-            // Kart/KMH: faiz oranı (yıllık %) opsiyonel. KMH bakiyesi ham girilir (negatif olabilir).
+            // Kart/KMH: faiz oranı opsiyonel. Girilen aylıksa ×12 ile YILLIĞA çevrilip saklanır (basit).
             const isDebtType = dbType === 'credit_card' || dbType === 'esnek_hesap'
-            const numInterestRate = isDebtType && interestRate.trim() !== '' ? (parseFloat(interestRate) || 0) : null
+            const enteredRate = parseFloat(interestRate) || 0
+            const annualRate = interestUnit === 'monthly' ? enteredRate * 12 : enteredRate
+            const numInterestRate = isDebtType && interestRate.trim() !== '' ? annualRate : null
 
             // For CC, we store Net Balance = Available - Limit. KMH ham bakiye kullanır.
             const numBalance = dbType === 'credit_card' ? (rawBalance - rawLimit) : rawBalance
@@ -266,15 +275,26 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-semibold ml-1 text-primary">Yıllık Faiz (%)</label>
-                                    <Input
-                                        type="number"
-                                        step="0.01"
-                                        placeholder={type === "Esnek Hesap" ? "36" : "42"}
-                                        value={interestRate}
-                                        className="h-11 rounded-xl bg-muted/20 border-border/50 focus:ring-primary/20"
-                                        onChange={(e) => setInterestRate(e.target.value)}
-                                    />
+                                    <label className="text-sm font-semibold ml-1 text-primary">Faiz (%)</label>
+                                    <div className="flex gap-2">
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            placeholder={interestUnit === 'monthly' ? "4.25" : "51"}
+                                            value={interestRate}
+                                            className="h-11 rounded-xl bg-muted/20 border-border/50 focus:ring-primary/20"
+                                            onChange={(e) => setInterestRate(e.target.value)}
+                                        />
+                                        <select
+                                            value={interestUnit}
+                                            onChange={(e) => setInterestUnit(e.target.value as 'monthly' | 'annual')}
+                                            className="h-11 rounded-xl border border-border/50 bg-muted/20 px-2 text-sm focus:outline-none"
+                                            title="Aylık mı yıllık mı girdiğin"
+                                        >
+                                            <option value="monthly">aylık</option>
+                                            <option value="annual">yıllık</option>
+                                        </select>
+                                    </div>
                                 </div>
                             </div>
                             {type === "Kredi Kartı" && (

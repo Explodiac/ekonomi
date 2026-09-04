@@ -137,7 +137,6 @@ type Selection = { kind: 'card' | 'account' | 'investment' | 'loan'; id: string 
 export default function VarlikPage() {
     const [accounts, setAccounts] = useState<Account[]>([])
     const [txs, setTxs] = useState<Tx[]>([])
-    const [interestCatId, setInterestCatId] = useState<string | null>(null)
     const [installments, setInstallments] = useState<Installment[]>([])
     const [investments, setInvestments] = useState<any[]>([])
     const [goals, setGoals] = useState<any[]>([])
@@ -171,7 +170,7 @@ export default function VarlikPage() {
             const hhId = await ensureHouseholdExists(user.id)
             if (!hhId) return
 
-            const [accRes, txRes, instRes, invRes, goalRes, contribRes, subRes, catRes, ratesRes] = await Promise.all([
+            const [accRes, txRes, instRes, invRes, goalRes, contribRes, subRes, ratesRes] = await Promise.all([
                 supabase.from('accounts').select('*').eq('household_id', hhId),
                 supabase.from('transactions').select('id, account_id, category_id, amount, type, cash_date, transaction_date, description, transfer_direction, source_type, categories(name)').eq('household_id', hhId),
                 supabase.from('installments').select('*, installment_payments(*)').eq('household_id', hhId),
@@ -179,10 +178,8 @@ export default function VarlikPage() {
                 supabase.from('goals').select('id, name, saved_tl, source_account_id, status').eq('household_id', hhId),
                 supabase.from('goal_contributions').select('goal_id, amount').eq('household_id', hhId),
                 supabase.from('subscriptions').select('*').eq('household_id', hhId),
-                supabase.from('categories').select('id, is_interest').eq('household_id', hhId),
                 fetch('/api/rates').then(r => r.json()).catch(() => ({ success: false })),
             ])
-            setInterestCatId((catRes.data || []).find((c: any) => c.is_interest)?.id ?? null)
 
             const accs = (accRes.data || []) as Account[]
             const allTx = (txRes.data || []) as any as Tx[]
@@ -473,7 +470,7 @@ export default function VarlikPage() {
                                 selected={selected} accounts={accounts} cards={cards} banks={banks} loans={loans}
                                 invEnriched={invEnriched} txs={txs} installments={installments} subscriptions={subscriptions}
                                 goals={goals} goalSaved={goalSaved} bal={bal} range={range} setRange={setRange}
-                                todayISO={todayISO} earliestTx={earliestTx} rates={rates} interestCatId={interestCatId}
+                                todayISO={todayISO} earliestTx={earliestTx} rates={rates}
                                 onEdit={requestEdit} onDelete={requestDelete} loanInfo={loanInfo}
                             />
                         ) : (
@@ -560,7 +557,7 @@ function DetailSection({ title, children }: { title: string; children: React.Rea
 
 // ── Sağ panel — hesap detayı ─────────────────────────────────────
 function DetailPanel(props: any) {
-    const { selected, accounts, cards, loans, invEnriched, txs, installments, subscriptions, goals, goalSaved, bal, range, setRange, todayISO, earliestTx, rates, interestCatId, onEdit, onDelete, loanInfo, bare } = props
+    const { selected, accounts, cards, loans, invEnriched, txs, installments, subscriptions, goals, goalSaved, bal, range, setRange, todayISO, earliestTx, rates, onEdit, onDelete, loanInfo, bare } = props
 
     // Ortak: seçili varlık
     const account: Account | undefined = accounts.find((a: Account) => a.id === selected.id)
@@ -579,13 +576,13 @@ function DetailPanel(props: any) {
 
     // Bu hesaba ödenen faiz — bu yıl + son 12 ay şeridi (kart/KMH detayında).
     const interestPaid = useMemo(() => {
-        if (!isAccountLike || !account || !interestCatId) return null
+        if (!isAccountLike || !account) return null
         const year = todayISO.slice(0, 4)
         const months: { month: string; amount: number }[] = []
         for (let i = 11; i >= 0; i--) { const d = new Date(todayISO + 'T00:00:00'); d.setMonth(d.getMonth() - i); months.push({ month: d.toISOString().slice(0, 7), amount: 0 }) }
         let paidThisYear = 0
         for (const t of txs as Tx[]) {
-            if (t.account_id !== account.id || t.category_id !== interestCatId || t.type !== 'expense') continue
+            if (t.account_id !== account.id || t.source_type !== 'faiz' || t.type !== 'expense') continue
             if (!t.cash_date || t.cash_date > todayISO) continue
             const amt = Math.abs(Number(t.amount))
             if (t.cash_date.slice(0, 4) === year) paidThisYear += amt
@@ -593,7 +590,7 @@ function DetailPanel(props: any) {
             if (slot) slot.amount += amt
         }
         return paidThisYear > 0 ? { paidThisYear, months } : null
-    }, [isAccountLike, account, txs, interestCatId, todayISO])
+    }, [isAccountLike, account, txs, todayISO])
 
     // Bağlı hedefler
     const linkedGoals = isAccountLike && account ? goals.filter((g: any) => g.source_account_id === account.id) : []

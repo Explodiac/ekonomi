@@ -6,7 +6,7 @@ import { supabase, ensureHouseholdExists } from "@/lib/supabase"
 import { Loader2, X } from "lucide-react"
 import { buildProjection, type ProjectionInput } from "@/lib/projection"
 import { computeBreathingRoom, type BreathingRoom } from "@/lib/breathing-room"
-import { avgMonthlyInterest } from "@/lib/interest"
+import { computeBaseIncome } from "@/lib/base-income"
 import { deriveAccountBalances } from "@/lib/balance"
 import { detectEndedSeries, type EstimateTransaction } from "@/lib/estimate"
 import { CategoryNatureClassifier } from "@/components/categories/category-nature-classifier"
@@ -31,7 +31,7 @@ export default function AssetPurchasePage() {
     const [projectionInput, setProjectionInput] = useState<ProjectionInput | null>(null)
     const [accounts, setAccounts] = useState<Account[]>([])
     const [hhId, setHhId] = useState<string | null>(null)
-    const [interestCatId, setInterestCatId] = useState<string | null>(null)
+    const [baseIncomeCatIds, setBaseIncomeCatIds] = useState<string[]>([])
     const [isLoading, setIsLoading] = useState(true)
 
     const [amount, setAmount] = useState(50000)
@@ -55,9 +55,9 @@ export default function AssetPurchasePage() {
                 supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status').eq('household_id', id),
                 supabase.from('installments').select('id, description, kind, installment_payments(id, payment_date, amount)').eq('household_id', id),
                 supabase.from('goals').select('id, name, target_amount, saved_tl, monthly_alloc, status').eq('household_id', id),
-                supabase.from('categories').select('id, is_interest').eq('household_id', id),
+                supabase.from('categories').select('id, type, is_base_income').eq('household_id', id),
             ])
-            setInterestCatId((catRes.data || []).find((c: any) => c.is_interest)?.id ?? null)
+            setBaseIncomeCatIds((catRes.data || []).filter((c: any) => c.type === 'income' && c.is_base_income).map((c: any) => c.id))
             const transactions = (txRes.data || []).map((t: any) => ({ ...t, categoryName: t.categories?.name ?? null }))
             const installments = (instRes.data || []).map((i: any) => ({ ...i, payments: i.installment_payments || [] }))
             setProjectionInput({
@@ -96,46 +96,46 @@ export default function AssetPurchasePage() {
         const proj = buildProjection(projectionInput)
         const ms = proj.months
         const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
-        const incKnown = avg(ms.map(m => m.incomeKnown))
-        const incEst = avg(ms.map(m => m.incomeEstimated))
         const outKnown = avg(ms.map(m => m.outflowKnown))
         const mandatory = Math.round(outKnown) + (extraFixed || 0)
+        // Taban gelir: TEK kaynak — yalnız 'düzenli' işaretli kategoriler (base-income.ts).
+        // incomeKnown/incomeEstimated (gerçekleşmiş/tahmini) BAŞKA eksen; karıştırılmaz.
+        const baseInc = computeBaseIncome({ transactions: projectionInput.transactions as any, baseCategoryIds: baseIncomeCatIds, currentMonth: cm })
         // Likit bakiye (stok) — peşin senaryonun sessiz alt satırı için. Türetilmiş
         // bakiye (saklanan balance güvenilir değil, bkz. lib/balance.ts).
         const derived = deriveAccountBalances(accounts, projectionInput.transactions as any, { warn: false })
         const liquid = accounts.filter(a => a.type === 'bank' || a.type === 'cash').reduce((s, a) => s + (derived.get(a.id) ?? 0), 0)
         const txs = projectionInput.transactions as EstimateTransaction[]
-        // Faiz: alışkanlıktan dışla, aylık ortalamasını zorunlu çıkışa ekle (net değişmez).
-        const interestTx = interestCatId ? txs.filter(t => t.category_id === interestCatId) : []
-        const extraMandatory = interestCatId ? avgMonthlyInterest(interestTx as any, cm) : 0
         return {
             cm,
-            baseIncomeFull: Math.round(incKnown + incEst),
-            baseIncomeCons: Math.round(incKnown),
+            baseIncome: baseInc.monthly,
+            hasBaseIncome: baseInc.hasBaseCategory,
             mandatory,
             txs,
             liquid,
-            extraMandatory,
         }
-    }, [projectionInput, extraFixed, accounts, interestCatId])
+    }, [projectionInput, extraFixed, accounts, baseIncomeCatIds])
 
     const br = (baseIncome: number, monthlyInstallment?: number): BreathingRoom | null =>
         base ? computeBreathingRoom({
             baseIncome, mandatoryOutflow: base.mandatory, transactions: base.txs, currentMonth: base.cm, monthlyInstallment,
-            excludeCategoryIds: interestCatId ? [interestCatId] : undefined, extraMandatory: base.extraMandatory,
         }) : null
 
     // Seçili senaryo (taksit sayısı = count).
     const monthly = amount / Math.max(1, count)
-    const selected = useMemo(() => br(base?.baseIncomeFull ?? 0, monthly), [base, monthly])
-    const fragility = useMemo(() => br(base?.baseIncomeCons ?? 0), [base]) // taksitsiz, değişken gelir sıfır
-    const roomFull = useMemo(() => br(base?.baseIncomeFull ?? 0), [base]) // taksitsiz, tam gelir (kırılganlık kıyası için)
+    // Taban artık yalnız düzenli gelir. Kırılganlık = "düzenli gelir %30 düşerse"
+    // (bir maaş kesme senaryosu hane başına gelir verisi gerektirir; %30 şoku
+    // hane-agnostik ve gerçekçi: kısmi işten çıkarma / azalan mesai / primsiz dönem).
+    const FRAGILITY_HAIRCUT = 0.30
+    const selected = useMemo(() => br(base?.baseIncome ?? 0, monthly), [base, monthly])
+    const fragility = useMemo(() => br(Math.round((base?.baseIncome ?? 0) * (1 - FRAGILITY_HAIRCUT))), [base])
+    const roomFull = useMemo(() => br(base?.baseIncome ?? 0), [base]) // taksitsiz tam taban (kırılganlık kıyası)
 
     const scenarios = useMemo(() => {
         const counts = [0, 3, 6, 9, 12]
         return counts.map(c => {
             const m = c === 0 ? undefined : amount / c
-            const r = br(base?.baseIncomeFull ?? 0, m)
+            const r = br(base?.baseIncome ?? 0, m)
             return { count: c, monthly: m ?? 0, r }
         })
     }, [base, amount])
@@ -203,6 +203,21 @@ export default function AssetPurchasePage() {
                         </div>
                     </div>
                 ))}
+
+                {/* Taban gelir uyarısı / bilgisi */}
+                {base && !base.hasBaseIncome && (
+                    <div className="p-[var(--s4)]" style={{ background: 'color-mix(in srgb, var(--flow-out) 10%, var(--surface))', borderRadius: 'var(--r-card)', border: '1px solid color-mix(in srgb, var(--flow-out) 30%, transparent)' }}>
+                        <p style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink-2)' }}>
+                            Hiçbir gelir kategorisi <b style={{ color: 'var(--ink)' }}>&quot;düzenli&quot;</b> olarak işaretlenmemiş — nefes payı hesaplanamıyor.{' '}
+                            <Link href="/settings" className="hover:underline" style={{ color: 'var(--accent)' }}>Ayarlar &gt; Kategoriler</Link>&apos;den maaşını işaretle.
+                        </p>
+                    </div>
+                )}
+                {base && base.hasBaseIncome && (
+                    <p style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink-3)' }}>
+                        Aylık düzenli geliriniz <b className="tnum" style={{ color: 'var(--ink-2)' }}>{formatTL(base.baseIncome)}</b> üzerinden hesaplandı. Prim ve ek gelir dahil değil.
+                    </p>
+                )}
 
                 {/* Ana çıktı — seçili senaryo */}
                 {selected && base && (
@@ -383,7 +398,7 @@ function Cell({ children, color = 'var(--ink)', bold }: { children: React.ReactN
     return <td className="tnum px-[var(--s2)] py-[var(--s2)] text-right" style={{ fontSize: 13, color, fontWeight: bold ? 600 : 400, whiteSpace: 'nowrap' }}>{children}</td>
 }
 
-/** 4. Kırılganlık testi — değişken gelir sıfırlanmış taban gelirle. */
+/** 4. Kırılganlık testi — düzenli gelir %30 düşerse (taban zaten yalnız maaş). */
 function FragilityCard({ roomFull, fragility }: { roomFull: BreathingRoom; fragility: BreathingRoom }) {
     const full = roomFull.breathingRoom
     const shocked = fragility.breathingRoom
@@ -391,7 +406,7 @@ function FragilityCard({ roomFull, fragility }: { roomFull: BreathingRoom; fragi
         <section style={{ background: 'var(--surface)', borderRadius: 'var(--r-card)' }} className="p-[22px]">
             <div className="mb-[var(--s2)]" style={{ fontSize: 11.5, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>Kırılganlık</div>
             <p style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink-2)' }}>
-                Değişken gelirin sıfırlanırsa nefes payın <span className="tnum" style={{ color: 'var(--ink)' }}>{formatTL(full)}</span>&apos;den{' '}
+                Düzenli gelirin %30 düşerse nefes payın <span className="tnum" style={{ color: 'var(--ink)' }}>{formatTL(full)}</span>&apos;den{' '}
                 <span className="tnum" style={{ color: shocked < 0 ? 'var(--flow-out)' : 'var(--ink)' }}>{formatTL(shocked)}</span>&apos;e iner.{' '}
                 {shocked >= 0
                     ? <>Bu şoka rağmen nefes payın pozitif kalıyor.</>

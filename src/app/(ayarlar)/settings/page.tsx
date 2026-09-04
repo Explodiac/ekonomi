@@ -15,7 +15,7 @@ type Category = {
     type: 'income' | 'expense'
     is_recurring: boolean
     parent_id: string | null
-    is_interest?: boolean
+    is_base_income?: boolean
 }
 
 export default function CategoriesPage() {
@@ -24,7 +24,7 @@ export default function CategoriesPage() {
     const [type, setType] = useState<'income' | 'expense'>('expense')
     const [parentId, setParentId] = useState<string>('')
     const [isRecurring, setIsRecurring] = useState(false)
-    const [isInterest, setIsInterest] = useState(false)
+    const [isBaseIncome, setIsBaseIncome] = useState(false)
     const [hhId, setHhId] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isSaving, setIsSaving] = useState(false)
@@ -39,7 +39,7 @@ export default function CategoriesPage() {
             if (!user) return
             const id = await ensureHouseholdExists(user.id)
             setHhId(id)
-            const { data, error } = await supabase.from('categories').select('id, name, type, is_recurring, parent_id, is_interest').eq('household_id', id).order('name')
+            const { data, error } = await supabase.from('categories').select('id, name, type, is_recurring, parent_id, is_base_income').eq('household_id', id).order('name')
             if (error) throw error
             setCategories(data || [])
         } catch (e: any) {
@@ -63,24 +63,27 @@ export default function CategoriesPage() {
         if (!name.trim() || !hhId) return
         setIsSaving(true)
         try {
-            const markInterest = type === 'expense' && isInterest
-            // Tek "Faiz & ücretler" kategorisi: yeni işaretlenirse eskisinin bayrağı kalkar.
-            if (markInterest) {
-                await supabase.from('categories').update({ is_interest: false }).eq('household_id', hhId).eq('is_interest', true)
-            }
             const { error } = await supabase.from('categories').insert({
                 household_id: hhId, name: name.trim(), type,
                 parent_id: parentId || null, is_recurring: isRecurring, budget_limit: 0,
-                is_interest: markInterest,
+                is_base_income: type === 'income' && isBaseIncome,
             })
             if (error) throw error
-            setName(''); setParentId(''); setIsRecurring(false); setIsInterest(false)
+            setName(''); setParentId(''); setIsRecurring(false); setIsBaseIncome(false)
             fetchAll()
         } catch (e: any) {
             alert('Kategori eklenemedi: ' + e.message)
         } finally {
             setIsSaving(false)
         }
+    }
+
+    // Gelir kategorisini düzenli/değişken işaretle (mevcut kategoriler için).
+    const markBase = async (catId: string, value: boolean) => {
+        try {
+            await supabase.from('categories').update({ is_base_income: value }).eq('id', catId)
+            fetchAll()
+        } catch (e: any) { alert('Güncellenemedi: ' + e.message) }
     }
 
     const reassignParent = async (catId: string, newParent: string) => {
@@ -161,16 +164,18 @@ export default function CategoriesPage() {
                         <Toggle on={isRecurring} onToggle={() => setIsRecurring(v => !v)} />
                         <span style={{ fontSize: 13.5, color: 'var(--ink-2)' }}>Tekrarlayan işlem (her ay otomatik takip)</span>
                     </label>
-                    {type === 'expense' && (
-                        <label className="flex cursor-pointer items-start gap-[var(--s3)]">
-                            <Toggle on={isInterest} onToggle={() => setIsInterest(v => !v)} />
-                            <span style={{ fontSize: 13.5, color: 'var(--ink-2)' }}>
-                                Faiz &amp; ücretler kategorisi
-                                <span className="block" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                                    Kart/KMH faizi, gecikme, aidat. Nefes payında alışkanlık değil zorunlu çıkış sayılır; bütçe konulamaz.
-                                </span>
-                            </span>
-                        </label>
+                    {type === 'income' && (
+                        <div>
+                            <div className="mb-[var(--s2)]" style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>Bu gelir düzenli mi?</div>
+                            <Segmented
+                                options={[{ value: 'true', label: 'Düzenli (maaş)' }, { value: 'false', label: 'Değişken (prim, ek gelir)' }]}
+                                value={isBaseIncome ? 'true' : 'false'}
+                                onChange={(v) => setIsBaseIncome(v === 'true')}
+                            />
+                            <p className="mt-[var(--s2)]" style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--ink-3)' }}>
+                                Düzenli gelirler nefes payı ve taksit kararlarında kullanılır. Değişken gelirler hesaba katılmaz — böylece garantisi olmayan parayla taahhüt altına girmezsin.
+                            </p>
+                        </div>
                     )}
                     <PrimaryButton type="submit" disabled={isSaving} className="w-full">
                         {isSaving ? '…' : 'Kategoriyi kaydet'}
@@ -194,11 +199,11 @@ export default function CategoriesPage() {
                 <>
                     <CategoryGroup
                         title="Gider kategorileri" groups={tree.expense} allCats={categories}
-                        inputStyle={inputStyle} onReassign={reassignParent} onDelete={setDeleteTarget}
+                        inputStyle={inputStyle} onReassign={reassignParent} onDelete={setDeleteTarget} onToggleBase={markBase}
                     />
                     <CategoryGroup
                         title="Gelir kategorileri" groups={tree.income} allCats={categories}
-                        inputStyle={inputStyle} onReassign={reassignParent} onDelete={setDeleteTarget}
+                        inputStyle={inputStyle} onReassign={reassignParent} onDelete={setDeleteTarget} onToggleBase={markBase}
                     />
                 </>
             )}
@@ -216,13 +221,14 @@ export default function CategoriesPage() {
     )
 }
 
-function CategoryGroup({ title, groups, allCats, inputStyle, onReassign, onDelete }: {
+function CategoryGroup({ title, groups, allCats, inputStyle, onReassign, onDelete, onToggleBase }: {
     title: string
     groups: { cat: Category; children: Category[] }[]
     allCats: Category[]
     inputStyle: any
     onReassign: (id: string, parent: string) => void
     onDelete: (c: Category) => void
+    onToggleBase: (id: string, value: boolean) => void
 }) {
     if (groups.length === 0) return null
     return (
@@ -231,10 +237,10 @@ function CategoryGroup({ title, groups, allCats, inputStyle, onReassign, onDelet
             <ul>
                 {groups.map(({ cat, children }, gi) => (
                     <li key={cat.id} style={{ borderTop: gi === 0 ? 'none' : '1px solid var(--border)' }}>
-                        <CategoryRow cat={cat} allCats={allCats} inputStyle={inputStyle} onReassign={onReassign} onDelete={onDelete} />
+                        <CategoryRow cat={cat} allCats={allCats} inputStyle={inputStyle} onReassign={onReassign} onDelete={onDelete} onToggleBase={onToggleBase} />
                         {children.map(ch => (
                             <div key={ch.id} className="pl-[var(--s6)]" style={{ borderTop: '1px solid var(--border)' }}>
-                                <CategoryRow cat={ch} child allCats={allCats} inputStyle={inputStyle} onReassign={onReassign} onDelete={onDelete} />
+                                <CategoryRow cat={ch} child allCats={allCats} inputStyle={inputStyle} onReassign={onReassign} onDelete={onDelete} onToggleBase={onToggleBase} />
                             </div>
                         ))}
                     </li>
@@ -244,13 +250,14 @@ function CategoryGroup({ title, groups, allCats, inputStyle, onReassign, onDelet
     )
 }
 
-function CategoryRow({ cat, child, allCats, inputStyle, onReassign, onDelete }: {
+function CategoryRow({ cat, child, allCats, inputStyle, onReassign, onDelete, onToggleBase }: {
     cat: Category
     child?: boolean
     allCats: Category[]
     inputStyle: any
     onReassign: (id: string, parent: string) => void
     onDelete: (c: Category) => void
+    onToggleBase: (id: string, value: boolean) => void
 }) {
     // Bir kategori yalnızca kendi türündeki başka üst-seviye kategorinin altına taşınabilir
     // (kendisi hariç, kendisi bir parent değilse — tek seviye kural).
@@ -264,6 +271,20 @@ function CategoryRow({ cat, child, allCats, inputStyle, onReassign, onDelete }: 
                 <div className="truncate" style={{ fontSize: 14.5, color: 'var(--ink)' }}>{cat.name}</div>
                 {cat.is_recurring && <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>tekrarlayan</div>}
             </Link>
+            {cat.type === 'income' && (
+                <button
+                    onClick={() => onToggleBase(cat.id, !cat.is_base_income)}
+                    className="shrink-0 px-[var(--s2)] py-[4px] transition-colors"
+                    title="Düzenli gelirler nefes payına girer; değişkenler girmez"
+                    style={{
+                        fontSize: 11.5, fontWeight: 600, borderRadius: 'var(--r-pill)',
+                        background: cat.is_base_income ? 'var(--accent-bg)' : 'var(--surface-2)',
+                        color: cat.is_base_income ? 'var(--accent)' : 'var(--ink-3)',
+                    }}
+                >
+                    {cat.is_base_income ? 'Düzenli' : 'Değişken'}
+                </button>
+            )}
             {!isParent && (
                 <select
                     value={cat.parent_id || ''}

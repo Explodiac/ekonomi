@@ -83,7 +83,7 @@ function AlimListesiInner() {
 
             const [planRes, catRes, accRes, txRes, subRes, instRes, goalRes] = await Promise.all([
                 supabase.from('purchase_plans').select('*').eq('household_id', id).order('priority', { ascending: true }),
-                supabase.from('categories').select('id, name, color, icon, is_interest').eq('household_id', id),
+                supabase.from('categories').select('id, name, type, color, icon, is_base_income').eq('household_id', id),
                 supabase.from('accounts').select('id, name, type, opening_balance, balance, interest_rate').eq('household_id', id),
                 supabase.from('transactions')
                     .select('id, account_id, category_id, amount, type, cash_date, description, source_type, spend_nature, source_id, transfer_direction')
@@ -107,15 +107,18 @@ function AlimListesiInner() {
             }
             const proj = buildProjection(projInput)
             const up = buildUpcoming({ transactions, subscriptions, installments }, { months: HORIZON })
+            const cats = (catRes.data || []) as any[]
+            const baseIncomeCategoryIds = cats.filter(c => c.type === 'income' && c.is_base_income).map(c => c.id)
             setExtras(computePurchasePlanContext({
                 projection: proj, upcoming: up, transactions,
                 goals: (goalRes.data || []) as any, currentMonth: currentMonth(),
+                baseIncomeCategoryIds,
             }))
 
-            // Faizli borç uyarısı — türetilmiş bakiye + hesap faiz oranından.
+            // Faizli borç uyarısı — türetilmiş bakiye + hesap faiz oranından. Ödenen
+            // faiz (varsa) source_type='faiz' hareketlerinden; uyarı ifPaidOff'a dayanır.
             const accts = accRes.data || []
-            const interestCatId = (catRes.data || []).find((c: any) => c.is_interest)?.id ?? null
-            const interestTx = interestCatId ? transactions.filter((t: any) => t.category_id === interestCatId) : []
+            const interestTx = transactions.filter((t: any) => t.source_type === 'faiz')
             const derived = deriveAccountBalances(accts as any, transactions as any, { warn: false })
             const interest = computeInterest({
                 accounts: accts.map((a: any) => ({ id: a.id, name: a.name, type: a.type, balance: derived.get(a.id) ?? a.balance, interest_rate: a.interest_rate })),
@@ -255,6 +258,19 @@ function AlimListesiInner() {
                     {/* SOL PANEL */}
                     <div className="flex min-w-0 flex-1 flex-col gap-[var(--s3)]">
                         {plan && <SummaryCard summary={plan.summary} />}
+                        {extras && !extras.hasBaseIncome && (
+                            <section className="p-[var(--s4)]" style={{ background: 'color-mix(in srgb, var(--flow-out) 10%, var(--surface))', borderRadius: 'var(--r-card)', border: '1px solid color-mix(in srgb, var(--flow-out) 30%, transparent)' }}>
+                                <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--ink-2)' }}>
+                                    Hiçbir gelir kategorisi <b style={{ color: 'var(--ink)' }}>&quot;düzenli&quot;</b> işaretli değil — nefes payı hesaplanamıyor.{' '}
+                                    <Link href="/settings" className="hover:underline" style={{ color: 'var(--accent)' }}>Ayarlar &gt; Kategoriler</Link>&apos;den maaşını işaretle.
+                                </p>
+                            </section>
+                        )}
+                        {extras && extras.hasBaseIncome && (
+                            <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--ink-3)' }}>
+                                Aylık düzenli gelir <b className="tnum" style={{ color: 'var(--ink-2)' }}>{formatTL(extras.baseIncome)}</b> üzerinden. Prim ve ek gelir dahil değil.
+                            </p>
+                        )}
                         {extras && sharedPool > 0 && (
                             <TakasBar sharedPool={sharedPool} goalShare={effectiveGoalShare} monthlyRoom={monthlyRoom}
                                 isDefault={goalShare == null}

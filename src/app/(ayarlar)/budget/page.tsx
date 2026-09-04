@@ -13,7 +13,7 @@ function formatTL(n: number): string {
 function todayStr() { return new Date().toISOString().slice(0, 10) }
 const TR_MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık']
 
-type Cat = { id: string; name: string; type: string; parent_id: string | null; is_interest?: boolean }
+type Cat = { id: string; name: string; type: string; parent_id: string | null }
 
 // Rampa: kullanım oranına renk (bütçe rampası)
 function rampColor(ratio: number): string {
@@ -41,7 +41,7 @@ export default function BudgetPage() {
             const id = await ensureHouseholdExists(user.id)
             setHhId(id)
             const [catRes, txRes, bpRes, hhRes] = await Promise.all([
-                supabase.from('categories').select('id, name, type, parent_id, is_interest').eq('household_id', id).order('name'),
+                supabase.from('categories').select('id, name, type, parent_id').eq('household_id', id).order('name'),
                 supabase.from('transactions').select('amount, type, cash_date, category_id, source_type, transfer_direction').eq('household_id', id),
                 supabase.from('budget_periods').select('category_id, period, budgeted').eq('household_id', id),
                 supabase.from('households').select('negative_carry').eq('id', id).single(),
@@ -82,8 +82,7 @@ export default function BudgetPage() {
     const tree = useMemo(() => {
         const meta: BudgetCategoryMeta[] = categories.map(c => ({ id: c.id, parent_id: c.parent_id }))
         const byId = new Map(meta.map(m => [m.id, m]))
-        // "Faiz & ücretler" bütçelenmez (sıfırlanması gereken bir şey) — listeden dışla.
-        const expense = categories.filter(c => c.type === 'expense' && !c.is_interest)
+        const expense = categories.filter(c => c.type === 'expense')
         const tops = expense.filter(c => !safeParent({ id: c.id, parent_id: c.parent_id }, byId))
         return tops.map(top => ({
             cat: top,

@@ -1,0 +1,12 @@
+-- Taban / değişken gelir ayrımı — kategori seviyesinde.
+--
+-- Nefes payı ve taksit kararları YALNIZ düzenli (garantili) gelirden hesaplanır;
+-- prim/freelance gibi değişken gelir hesaba katılmaz. income_sources tablosunu
+-- canlandırmak yerine kullanıcının zaten seçtiği kategoriye bir bayrak ekliyoruz.
+--
+-- Additive: nullable-değil ama DEFAULT'lu → mevcut satırları reddetmez, veri
+-- kaybı yok. Yalnız type='income' kategoriler için anlamlı.
+--
+-- Varsayılan FALSE (değişken): kullanıcı işaretlemezse İHTİYATLI davranılır —
+-- nefes payı olduğundan düşük çıkar, yüksek değil.
+ALTER TABLE public.categories ADD COLUMN IF NOT EXISTS is_base_income BOOLEAN NOT NULL DEFAULT FALSE;

@@ -116,6 +116,112 @@ function simulatePayoff(debt: number, annualRatePct: number, minPaymentPct: numb
     return { months, totalInterest: round2(totalInterest) }
 }
 
+// ─── Dönem sonu faiz onayı (kesim günü / ay sonu) ───────────────────────────
+
+export type PendingInterestAccount = {
+    id: string
+    name?: string | null
+    type?: string | null
+    /** Türetilmiş güncel bakiye (negatif = borç). */
+    balance: number | string
+    /** Yıllık faiz oranı (%). Boşsa faiz sorulmaz. */
+    interest_rate?: number | string | null
+    /** Kart kesim (statement) günü 1-31. Esnek hesapta kullanılmaz (ay sonu). */
+    cut_date?: number | null
+}
+
+export type PendingInterest = {
+    accountId: string
+    name: string
+    type: string
+    /** Faiz hareketinin cash_date'i = dönem sonu ('YYYY-MM-DD'). */
+    periodEnd: string
+    debt: number
+    /** Aylık faiz oranı (%) = yıllık / 12 (BASİT bölme). */
+    monthlyRatePct: number
+    /** Hesaplanan faiz = borç × aylık oran. */
+    amount: number
+    /** "Bir kez sor" kalıcı kaydı için kararlı kimlik (dismissed_recurring). */
+    fingerprint: string
+}
+
+function pad2(n: number): string { return String(n).padStart(2, '0') }
+function daysInMonth(y: number, m1to12: number): number { return new Date(y, m1to12, 0).getDate() }
+
+/** Kartın today'e kadarki EN SON kesim tarihi (kesim günü ay uzunluğuna kırpılır). */
+function lastCutDate(cutDay: number, today: string): string {
+    const [y, m] = today.split('-').map(Number)
+    const dThis = Math.min(cutDay, daysInMonth(y, m))
+    const cutThis = `${y}-${pad2(m)}-${pad2(dThis)}`
+    if (cutThis <= today) return cutThis
+    // Bu ayın kesimi henüz gelmedi → geçen ayın kesimi.
+    const pm = m === 1 ? 12 : m - 1
+    const py = m === 1 ? y - 1 : y
+    const dPrev = Math.min(cutDay, daysInMonth(py, pm))
+    return `${py}-${pad2(pm)}-${pad2(dPrev)}`
+}
+
+/** today'e kadarki EN SON tamamlanmış ay sonu. */
+function lastMonthEnd(today: string): string {
+    const [y, m, d] = today.split('-').map(Number)
+    const lastThis = daysInMonth(y, m)
+    if (d === lastThis) return today // bugün ay sonu
+    const pm = m === 1 ? 12 : m - 1
+    const py = m === 1 ? y - 1 : y
+    return `${py}-${pad2(pm)}-${pad2(daysInMonth(py, pm))}`
+}
+
+/**
+ * Dönem sonu (kart kesim günü / esnek ay sonu) gelmiş, faiz oranı girilmiş ve
+ * borcu olan hesaplar için HESAPLANAN faiz — onay bekleyenler. Cevaplanmış/atlanmış
+ * dönemler (answeredFingerprints) hariç. Hesap başına en son kapanan dönem.
+ *
+ * Aylık oran = yıllık / 12 (basit bölme; bileşik DEĞİL). Türkiye'de kart faizi
+ * aylık ilan edilir; kullanıcı formda aylık girip ×12 ile yıllığa çevrildiği için
+ * bölme geri-dönüşü tam tutar — girdiği aylık oran birebir uygulanır.
+ */
+export function computePendingInterest(input: {
+    accounts: PendingInterestAccount[]
+    answeredFingerprints: string[]
+    today: string | Date
+}): PendingInterest[] {
+    const today = toISO(input.today)
+    const answered = new Set(input.answeredFingerprints)
+    const out: PendingInterest[] = []
+
+    for (const a of input.accounts) {
+        if (!DEBT_TYPES.has(a.type ?? '')) continue
+        const rate = a.interest_rate != null ? toNumber(a.interest_rate) : 0
+        if (rate <= 0) continue
+        const debt = Math.max(0, -toNumber(a.balance))
+        if (debt <= 0) continue
+
+        let periodEnd: string | null = null
+        if (a.type === 'credit_card') {
+            if (!a.cut_date) continue // kesim günü yoksa dönem belirsiz
+            periodEnd = lastCutDate(a.cut_date, today)
+        } else {
+            periodEnd = lastMonthEnd(today)
+        }
+        if (!periodEnd || periodEnd > today) continue
+
+        const fingerprint = `faiz:${a.id}:${periodEnd}`
+        if (answered.has(fingerprint)) continue
+
+        out.push({
+            accountId: a.id,
+            name: a.name ?? 'Hesap',
+            type: a.type ?? '',
+            periodEnd,
+            debt: round2(debt),
+            monthlyRatePct: round2(rate / 12),
+            amount: round2(debt * (rate / 100 / 12)),
+            fingerprint,
+        })
+    }
+    return out
+}
+
 function shiftMonth(month: string, delta: number): string {
     const [y, m] = month.split('-').map(Number)
     const d = new Date(y, m - 1 + delta, 1)

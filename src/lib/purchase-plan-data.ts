@@ -9,6 +9,7 @@
  */
 
 import { computeBreathingRoom } from './breathing-room.ts'
+import { computeBaseIncome } from './base-income.ts'
 import type { EstimateTransaction } from './estimate.ts'
 import type { ProjectionResult } from './projection.ts'
 import type { UpcomingResult } from './upcoming.ts'
@@ -21,6 +22,10 @@ export type PurchasePlanContext = {
     goalAllocTotal: number
     reliefs: MonthRelief[]
     loads: MonthLoad[]
+    /** Nefes payının dayandığı aylık düzenli (taban) gelir — ekranda gösterilir. */
+    baseIncome: number
+    /** 'düzenli' işaretli en az bir gelir kategorisi var mı (yoksa uyarı gösterilir). */
+    hasBaseIncome: boolean
 }
 
 export type GoalAllocRow = { monthly_alloc: number | string | null; status?: string | null }
@@ -39,11 +44,14 @@ export function computePurchasePlanContext(args: {
     transactions: EstimateTransaction[]
     goals: GoalAllocRow[]
     currentMonth: string
+    /** is_base_income=true gelir kategorileri — taban gelir yalnız bunlardan. */
+    baseIncomeCategoryIds: string[]
 }): PurchasePlanContext {
-    const { projection, upcoming, transactions, goals, currentMonth } = args
+    const { projection, upcoming, transactions, goals, currentMonth, baseIncomeCategoryIds } = args
 
-    // Nefes payı: projeksiyon ortalamalarından (asset-purchase reçetesiyle aynı).
-    const baseIncome = Math.round(avg(projection.months.map(m => m.incomeKnown)) + avg(projection.months.map(m => m.incomeEstimated)))
+    // Taban gelir: TEK kaynak — yalnız 'düzenli' işaretli kategoriler (base-income.ts).
+    const base = computeBaseIncome({ transactions, baseCategoryIds: baseIncomeCategoryIds, currentMonth })
+    const baseIncome = base.monthly
     const mandatory = Math.round(avg(projection.months.map(m => m.outflowKnown))) // hedef payı DAHİL
     const br = computeBreathingRoom({ baseIncome, mandatoryOutflow: mandatory, transactions, currentMonth })
 
@@ -58,5 +66,5 @@ export function computePurchasePlanContext(args: {
         .filter(m => m.isHeavy && m.total > med)
         .map(m => ({ month: m.month, amount: Math.round(m.total - med), reason: m.heavyReason }))
 
-    return { monthlyRoomBase: br.breathingRoom, goalAllocTotal, reliefs, loads }
+    return { monthlyRoomBase: br.breathingRoom, goalAllocTotal, reliefs, loads, baseIncome, hasBaseIncome: base.hasBaseCategory }
 }

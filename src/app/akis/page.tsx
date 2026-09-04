@@ -130,21 +130,17 @@ function FlowTooltip({ n, index, width, title, total, totalColor, rows, footer }
 }
 
 /** Bir ay için ilk 5 kategori + "Diğer kategoriler…" satırı. */
-function topRows(cats: { key: string; label: string; monthly: number[] }[], i: number, otherLabel: string, pinnedKey?: string | null): TipRow[] {
+function topRows(cats: { key: string; label: string; monthly: number[] }[], i: number, otherLabel: string): TipRow[] {
     const items = cats
         .map(c => ({ key: c.key, label: c.label, amount: c.monthly[i] ?? 0 }))
         .filter(c => c.amount > 0)
         .sort((a, b) => b.amount - a.amount)
-    // "Faiz & ücretler" sıralamaya karışmaz — her zaman en üstte, görünür kalır.
-    const pinned = pinnedKey ? items.find(c => c.key === pinnedKey) : undefined
-    const rest = pinned ? items.filter(c => c.key !== pinnedKey) : items
-    const top: TipRow[] = rest.slice(0, 5).map(c => ({
+    const top: TipRow[] = items.slice(0, 5).map(c => ({
         color: c.key === RECURRING_KEY ? 'var(--ink-3)' : categoryInk(c.label),
         label: c.label, amount: c.amount, icon: c.key !== RECURRING_KEY,
     }))
-    const restSum = rest.slice(5).reduce((s, c) => s + c.amount, 0)
+    const restSum = items.slice(5).reduce((s, c) => s + c.amount, 0)
     if (restSum > 0) top.push({ color: 'var(--ink-3)', label: otherLabel, amount: restSum })
-    if (pinned) top.unshift({ color: 'var(--flow-out)', label: pinned.label, amount: pinned.amount, icon: true })
     return top
 }
 function d(iso: string) { const [y, m, day] = iso.split('-').map(Number); return new Date(y, m - 1, day) }
@@ -170,7 +166,6 @@ function AkisInner() {
     const params = useSearchParams()
     const [txs, setTxs] = useState<FlowTransaction[]>([])
     const [categories, setCategories] = useState<BudgetCategoryMeta[]>([])
-    const [interestCatId, setInterestCatId] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(true)
 
     const period = (params.get('donem') as Period) || 'ybb'
@@ -196,11 +191,10 @@ function AkisInner() {
                     supabase.from('transactions')
                         .select('amount, type, cash_date, category_id, description, transfer_direction, source_type, categories(name)')
                         .eq('household_id', hhId),
-                    supabase.from('categories').select('id, name, parent_id, is_interest').eq('household_id', hhId),
+                    supabase.from('categories').select('id, name, parent_id').eq('household_id', hhId),
                 ])
                 setTxs((txRes.data || []).map((t: any) => ({ ...t, categoryName: t.categories?.name ?? null })))
                 setCategories((catRes.data || []) as any)
-                setInterestCatId((catRes.data || []).find((c: any) => c.is_interest)?.id ?? null)
             } catch (e) {
                 console.error('Akış hesaplanamadı:', e)
             } finally {
@@ -303,7 +297,7 @@ function AkisInner() {
                 <div className="flex flex-col gap-[var(--s3)]">
                     <NetCard result={result} cmp={cmp} compareLabel={compareLabel} onOpenPanel={openPanel} />
                     <div className="flex flex-col gap-[var(--s3)] lg:flex-row">
-                        <div className="lg:flex-1"><FlowSideCard kind="expense" result={result} cmp={cmp} compareLabel={compareLabel} onOpenPanel={openPanel} interestCatId={interestCatId} /></div>
+                        <div className="lg:flex-1"><FlowSideCard kind="expense" result={result} cmp={cmp} compareLabel={compareLabel} onOpenPanel={openPanel} /></div>
                         <div className="lg:flex-1"><FlowSideCard kind="income" result={result} cmp={cmp} compareLabel={compareLabel} onOpenPanel={openPanel} /></div>
                     </div>
                     <BreakdownCard result={result} categories={categories} />
@@ -407,7 +401,7 @@ function NetCard({ result, cmp, compareLabel, onOpenPanel }: { result: CashflowR
 }
 
 /** 3) Harcama / Gelir kartı — toplam + DeltaChip + aylık bar (harcama yığılmış). */
-function FlowSideCard({ kind, result, cmp, compareLabel, onOpenPanel, interestCatId }: { kind: 'expense' | 'income'; result: CashflowResult; cmp: CashflowResult; compareLabel: string; onOpenPanel: (kind: PanelKind, month: string) => void; interestCatId?: string | null }) {
+function FlowSideCard({ kind, result, cmp, compareLabel, onOpenPanel }: { kind: 'expense' | 'income'; result: CashflowResult; cmp: CashflowResult; compareLabel: string; onOpenPanel: (kind: PanelKind, month: string) => void }) {
     const isExp = kind === 'expense'
     const total = isExp ? result.totalExpense : result.totalIncome
     const cmpTotal = isExp ? cmp.totalExpense : cmp.totalIncome
@@ -465,7 +459,7 @@ function FlowSideCard({ kind, result, cmp, compareLabel, onOpenPanel, interestCa
                         n={n} index={hover} width={width}
                         title={monthLabel(months[hover].month)} total={monthTotals[hover]}
                         totalColor={isExp ? 'var(--flow-out)' : 'var(--flow-in)'}
-                        rows={topRows(sources, hover, isExp ? 'Diğer kategoriler…' : 'Diğer kaynaklar…', isExp ? interestCatId : null)}
+                        rows={topRows(sources, hover, isExp ? 'Diğer kategoriler…' : 'Diğer kaynaklar…')}
                     />
                 )}
             </div>

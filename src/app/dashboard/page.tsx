@@ -74,6 +74,10 @@ export default function DashboardPage() {
     const [goals, setGoals] = useState<Goal[]>([])
     // Planlı alımlar — "Sıradaki alım" satırı için (yalnız status='planli' çekilir).
     const [purchasePlans, setPurchasePlans] = useState<any[]>([])
+    // Cevaplanmış/atlanmış faiz dönemleri (dismissed_recurring 'faiz:...').
+    const [dismissedFaiz, setDismissedFaiz] = useState<string[]>([])
+    const [interestModalOpen, setInterestModalOpen] = useState(false)
+    const [hhIdState, setHhIdState] = useState<string | null>(null)
     // Ham hedef katkıları (goal_contributions). Runway ve Hedefler bloğu tek kaynaktan.
     const [goalContribs, setGoalContribs] = useState<{ goal_id: string; period: string; amount: number }[]>([])
     // Taksit bitişini hedefe yönlendirme akışı (1b-4). Açıksa hangi kalkan yük.
@@ -87,9 +91,9 @@ export default function DashboardPage() {
             const hhId = await ensureHouseholdExists(user.id)
             if (!hhId) return
 
-            const [accRes, txRes, subRes, instRes, contractRes, catRes, bpRes, hhRes, goalRes, goalContribRes, planRes] = await Promise.all([
+            const [accRes, txRes, subRes, instRes, contractRes, catRes, bpRes, hhRes, goalRes, goalContribRes, planRes, dismRes] = await Promise.all([
                 supabase.from('accounts')
-                    .select('id, name, type, balance, opening_balance, credit_limit')
+                    .select('id, name, type, balance, opening_balance, credit_limit, interest_rate, cut_date')
                     .eq('household_id', hhId),
                 supabase.from('transactions')
                     .select('id, account_id, category_id, amount, type, cash_date, description, source_type, spend_nature, source_id, transfer_direction, categories(name)')
@@ -104,7 +108,7 @@ export default function DashboardPage() {
                     .select('id, name, contract_payments(id, amount, expected_date, status)')
                     .eq('household_id', hhId),
                 supabase.from('categories')
-                    .select('id, name, budget_limit, type, parent_id, default_nature')
+                    .select('id, name, budget_limit, type, parent_id, default_nature, is_base_income')
                     .eq('household_id', hhId),
                 supabase.from('budget_periods')
                     .select('category_id, period, budgeted')
@@ -120,6 +124,8 @@ export default function DashboardPage() {
                 supabase.from('purchase_plans')
                     .select('id, name, amount, priority, payment_plan, installment_count, desired_by, category_id, status')
                     .eq('household_id', hhId).eq('status', 'planli'),
+                supabase.from('dismissed_recurring')
+                    .select('fingerprint').eq('household_id', hhId).like('fingerprint', 'faiz:%'),
             ])
 
             const accountList = accRes.data || []
@@ -162,6 +168,8 @@ export default function DashboardPage() {
             setGoals((goalRes.data || []) as Goal[])
             setGoalContribs((goalContribRes.data || []).map((c: any) => ({ goal_id: c.goal_id, period: c.period, amount: Number(c.amount) })))
             setPurchasePlans(planRes.data || [])
+            setDismissedFaiz((dismRes.data || []).map((d: any) => d.fingerprint))
+            setHhIdState(hhId)
             setBalances(derived)
             setProjection(projectionResult)
             setUpcoming(upcomingResult)
@@ -249,6 +257,7 @@ export default function DashboardPage() {
         const ctx = computePurchasePlanContext({
             projection, upcoming, transactions: transactions as any,
             goals: goals as any, currentMonth: currentMonthKey,
+            baseIncomeCategoryIds: (categories as any[]).filter(c => c.type === 'income' && c.is_base_income).map(c => c.id),
         })
         const plan = buildPurchasePlan({
             from: currentMonthKey, months: 24, monthlyRoom: ctx.monthlyRoomBase,
@@ -263,7 +272,7 @@ export default function DashboardPage() {
         if (!placed.length) return null
         const next = placed.reduce((a, b) => (a.recommendedMonth! <= b.recommendedMonth! ? a : b))
         return { name: next.name, month: next.recommendedMonth! }
-    }, [projection, upcoming, transactions, goals, purchasePlans, currentMonthKey])
+    }, [projection, upcoming, transactions, goals, purchasePlans, currentMonthKey, categories])
 
     // Eyleme bağlı öneri: bir taksit bitiyor VE aktif hedef varsa.
     const reliefSuggestion = useMemo(() => {
