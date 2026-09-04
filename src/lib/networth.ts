@@ -145,6 +145,9 @@ function snapshot(
         const bal = derivedBalance(acc.opening_balance ?? 0, accTx, asOf)
         if (acc.type === 'credit_card') {
             cardDebt += Math.max(0, -bal) // borç: negatif bakiyenin mutlak değeri
+        } else if (acc.type === 'esnek_hesap') {
+            // KMH: negatif = kullanılan kredi (borç); pozitif = varlık (likit).
+            if (bal < 0) cardDebt += -bal; else liquid += bal
         } else if (LIQUID_TYPES.includes(acc.type || '')) {
             liquid += Math.max(0, bal) // negatif likit bakiye borç sayılmaz, sıfırlanır
         }
@@ -230,6 +233,7 @@ function seriesNetWorth(
         for (const [id, b] of bal) {
             const type = typeOf.get(id)
             if (type === 'credit_card') cardDebt += Math.max(0, -b)
+            else if (type === 'esnek_hesap') { if (b < 0) cardDebt += -b; else liquid += b }
             else if (LIQUID_TYPES.includes(type || '')) liquid += Math.max(0, b)
         }
         const loans = remainingLoans(installments, p.at)

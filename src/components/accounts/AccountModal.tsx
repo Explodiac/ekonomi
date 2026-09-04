@@ -16,6 +16,7 @@ type Account = {
     credit_limit?: number;
     cut_date?: number;
     due_date?: number;
+    interest_rate?: number | null;
 }
 
 type ModalProps = {
@@ -33,6 +34,7 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
     const [creditLimit, setCreditLimit] = useState("")
     const [cutDate, setCutDate] = useState("")
     const [dueDate, setDueDate] = useState("")
+    const [interestRate, setInterestRate] = useState("")
 
     const [isLoading, setIsLoading] = useState(false)
     const [householdId, setHouseholdId] = useState<string | null>(null)
@@ -47,6 +49,7 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                     "bank": "Vadesiz",
                     "cash": "Nakit",
                     "credit_card": "Kredi Kartı",
+                    "esnek_hesap": "Esnek Hesap",
                     "investment": "Yatırım"
                 }
                 setType(revMap[account.type] || "Vadesiz")
@@ -54,6 +57,7 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                 setCreditLimit(account.credit_limit?.toString() || "")
                 setCutDate(account.cut_date?.toString() || "")
                 setDueDate(account.due_date?.toString() || "")
+                setInterestRate(account.interest_rate != null ? account.interest_rate.toString() : "")
 
                 if (account.type === 'credit_card') {
                     // Show Available Limit to user: Available = Limit + Balance
@@ -70,6 +74,7 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                 setCreditLimit("")
                 setCutDate("")
                 setDueDate("")
+                setInterestRate("")
             }
         }
     }, [isOpen, account])
@@ -101,13 +106,17 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                 "Vadesiz": "bank",
                 "Nakit": "cash",
                 "Kredi Kartı": "credit_card",
+                "Esnek Hesap": "esnek_hesap",
                 "Yatırım": "investment"
             }
             const dbType = typeMap[type] || "bank"
             const rawBalance = parseFloat(balance) || 0
             const rawLimit = parseFloat(creditLimit) || 0
+            // Kart/KMH: faiz oranı (yıllık %) opsiyonel. KMH bakiyesi ham girilir (negatif olabilir).
+            const isDebtType = dbType === 'credit_card' || dbType === 'esnek_hesap'
+            const numInterestRate = isDebtType && interestRate.trim() !== '' ? (parseFloat(interestRate) || 0) : null
 
-            // For CC, we store Net Balance = Available - Limit
+            // For CC, we store Net Balance = Available - Limit. KMH ham bakiye kullanır.
             const numBalance = dbType === 'credit_card' ? (rawBalance - rawLimit) : rawBalance
 
             if (account) {
@@ -131,9 +140,10 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                         balance: numBalance,
                         opening_balance: newOpening,
                         currency,
-                        credit_limit: dbType === 'credit_card' ? parseFloat(creditLimit) || 0 : 0,
+                        credit_limit: isDebtType ? parseFloat(creditLimit) || 0 : 0,
                         cut_date: dbType === 'credit_card' ? parseInt(cutDate) || null : null,
-                        due_date: dbType === 'credit_card' ? parseInt(dueDate) || null : null
+                        due_date: dbType === 'credit_card' ? parseInt(dueDate) || null : null,
+                        interest_rate: numInterestRate
                     })
                     .eq('id', account.id)
                 if (error) throw error
@@ -151,9 +161,10 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                         // bakiye o satırı çıkış sayıp bakiyeyi ters işaretli gösteriyordu.
                         opening_balance: numBalance,
                         currency,
-                        credit_limit: dbType === 'credit_card' ? parseFloat(creditLimit) || 0 : 0,
+                        credit_limit: isDebtType ? parseFloat(creditLimit) || 0 : 0,
                         cut_date: dbType === 'credit_card' ? parseInt(cutDate) || null : null,
-                        due_date: dbType === 'credit_card' ? parseInt(dueDate) || null : null
+                        due_date: dbType === 'credit_card' ? parseInt(dueDate) || null : null,
+                        interest_rate: numInterestRate
                     }])
                     .select()
                     .single()
@@ -205,6 +216,7 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                             <option value="Vadesiz">Vadesiz Banka Hesabı</option>
                             <option value="Nakit">Cüzdan / Nakit Para</option>
                             <option value="Kredi Kartı">Kredi Kartı</option>
+                            <option value="Esnek Hesap">Esnek Hesap (KMH)</option>
                             <option value="Yatırım">Yatırım Hesabı</option>
                         </select>
                     </div>
@@ -239,45 +251,59 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                         </div>
                     </div>
 
-                    {type === "Kredi Kartı" && (
-                        <div className="grid grid-cols-3 gap-4 animate-in slide-in-from-top-2 duration-300">
-                            <div className="space-y-2">
-                                <label className="text-sm font-semibold ml-1 text-primary">Limit (₺)</label>
-                                <Input
-                                    type="number"
-                                    required
-                                    placeholder="50000"
-                                    value={creditLimit}
-                                    className="h-11 rounded-xl bg-muted/20 border-border/50 focus:ring-primary/20"
-                                    onChange={(e) => setCreditLimit(e.target.value)}
-                                />
+                    {(type === "Kredi Kartı" || type === "Esnek Hesap") && (
+                        <div className="space-y-4 animate-in slide-in-from-top-2 duration-300">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-semibold ml-1 text-primary">Limit (₺)</label>
+                                    <Input
+                                        type="number"
+                                        required
+                                        placeholder="50000"
+                                        value={creditLimit}
+                                        className="h-11 rounded-xl bg-muted/20 border-border/50 focus:ring-primary/20"
+                                        onChange={(e) => setCreditLimit(e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-semibold ml-1 text-primary">Yıllık Faiz (%)</label>
+                                    <Input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder={type === "Esnek Hesap" ? "36" : "42"}
+                                        value={interestRate}
+                                        className="h-11 rounded-xl bg-muted/20 border-border/50 focus:ring-primary/20"
+                                        onChange={(e) => setInterestRate(e.target.value)}
+                                    />
+                                </div>
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-semibold ml-1 text-primary">Kesim (Gün)</label>
-                                <Input
-                                    type="number"
-                                    min="1"
-                                    max="31"
-                                    required
-                                    placeholder="15"
-                                    value={cutDate}
-                                    className="h-11 rounded-xl bg-muted/20 border-border/50 focus:ring-primary/20"
-                                    onChange={(e) => setCutDate(e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-semibold ml-1 text-primary">Son Ödeme</label>
-                                <Input
-                                    type="number"
-                                    min="1"
-                                    max="31"
-                                    required
-                                    placeholder="25"
-                                    value={dueDate}
-                                    className="h-11 rounded-xl bg-muted/20 border-border/50 focus:ring-primary/20"
-                                    onChange={(e) => setDueDate(e.target.value)}
-                                />
-                            </div>
+                            {type === "Kredi Kartı" && (
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-semibold ml-1 text-primary">Kesim (Gün)</label>
+                                        <Input
+                                            type="number" min="1" max="31" required placeholder="15"
+                                            value={cutDate}
+                                            className="h-11 rounded-xl bg-muted/20 border-border/50 focus:ring-primary/20"
+                                            onChange={(e) => setCutDate(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-semibold ml-1 text-primary">Son Ödeme</label>
+                                        <Input
+                                            type="number" min="1" max="31" required placeholder="25"
+                                            value={dueDate}
+                                            className="h-11 rounded-xl bg-muted/20 border-border/50 focus:ring-primary/20"
+                                            onChange={(e) => setDueDate(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                            {type === "Esnek Hesap" && (
+                                <p className="text-xs text-muted-foreground ml-1">
+                                    Negatif bakiye = kullanılan kredi (normaldir). Faiz oranı borç maliyetini ve nefes payı etkisini hesaplar.
+                                </p>
+                            )}
                         </div>
                     )}
 

@@ -44,6 +44,12 @@ export type BreathingRoomInput = {
     currentMonth: string
     /** Değerlendirilen taksit/yük (varsa). afterPurchase = breathingRoom − bu. */
     monthlyInstallment?: number
+    /** Alışkanlıktan DIŞLANACAK kategoriler (ör. "Faiz & ücketler") — kısılabilir
+     *  değil, borcun sonucu. Bunun yerine extraMandatory ile zorunlu çıkışa eklenir. */
+    excludeCategoryIds?: string[]
+    /** mandatoryOutflow'a eklenecek ek zorunlu çıkış (ör. aylık ortalama faiz).
+     *  Net nefes payı değişmez; faiz alışkanlık kovasından zorunlu kovasına geçer. */
+    extraMandatory?: number
 }
 
 export type BreathingRoom = {
@@ -89,10 +95,18 @@ function shiftMonth(month: string, delta: number): string {
 
 export function computeBreathingRoom(input: BreathingRoomInput): BreathingRoom {
     const baseIncome = round2(toNumber(input.baseIncome))
-    const mandatoryOutflow = round2(toNumber(input.mandatoryOutflow))
+    // Faiz gibi zorunlu ama kategori-harcaması görünen kalemler extraMandatory ile
+    // buraya eklenir; alışkanlıktan da dışlanır → net değişmez, sınıflama düzelir.
+    const mandatoryOutflow = round2(toNumber(input.mandatoryOutflow) + toNumber(input.extraMandatory))
+
+    // Alışkanlıktan dışlanan kategoriler (faiz vb.) hariç hareketler.
+    const excludeSet = new Set(input.excludeCategoryIds ?? [])
+    const habitTx = excludeSet.size
+        ? input.transactions.filter(t => !t.category_id || !excludeSet.has(t.category_id))
+        : input.transactions
 
     // Alışkanlık = son 3 tam ay ortalaması, kategori bazında (estimate.ts tek kaynak).
-    const estimates = estimateAllCategories(input.transactions, input.currentMonth)
+    const estimates = estimateAllCategories(habitTx, input.currentMonth)
     const rawHabitual: HabitualCategory[] = estimates.map(e => ({ categoryId: e.categoryId, label: e.label, amount: e.amount }))
 
     // Yeterli veri var mı? Son 3 tam ayın kaçında herhangi bir gider hareketi var.
@@ -101,7 +115,7 @@ export function computeBreathingRoom(input: BreathingRoomInput): BreathingRoom {
     const monthsWithData = new Set<string>()
     // Sınıflanmamış (spend_nature null) değişken harcama — ortalamaya giriyor ama belirsiz.
     let unclassifiedSum = 0, unclassifiedCount = 0
-    for (const t of input.transactions) {
+    for (const t of habitTx) {
         if (t.type !== 'expense' || !t.cash_date) continue
         const mk = t.cash_date.slice(0, 7)
         if (!basis.has(mk)) continue

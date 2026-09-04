@@ -10,6 +10,7 @@ import { AccountModal } from "@/components/accounts/AccountModal"
 import { TransactionList, Transaction } from "@/components/transactions/TransactionList"
 import { TransactionModal } from "@/components/transactions/TransactionModal"
 import { calculateCashDate } from "@/lib/cash-date"
+import { computeInterest } from "@/lib/interest"
 import { deriveAccountBalances, transactionEffect, today } from "@/lib/balance"
 import { LoanModal } from "@/components/loans/LoanModal"
 import { Landmark } from "lucide-react"
@@ -25,6 +26,7 @@ type Account = {
     credit_limit: number;
     cut_date?: number;
     due_date?: number;
+    interest_rate?: number | null;
 }
 
 type Installment = {
@@ -603,6 +605,43 @@ export default function CreditCardsPage() {
                                                         <div className="tnum" style={{ fontSize: 14, color: 'var(--ink)' }}>{formatCurrency(asgari)}</div>
                                                     </div>
                                                 </div>
+
+                                                {/* Asgari ödeme tuzağı — borç kaç ayda kapanır / kapanmaz. */}
+                                                {debt > 0 && (() => {
+                                                    const minPct = Number(card.credit_limit) <= 25000 ? 20 : 40
+                                                    const sc = card.interest_rate != null
+                                                        ? computeInterest({
+                                                            accounts: [{ id: card.id, type: 'credit_card', balance: balanceOf(card), interest_rate: card.interest_rate }],
+                                                            transactions: [], today: new Date().toISOString().slice(0, 10), minPaymentPct: minPct,
+                                                        }).paidByAccount[0]?.minimumPaymentScenario ?? null
+                                                        : null
+                                                    if (card.interest_rate == null) {
+                                                        return (
+                                                            <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--ink-3)' }}>
+                                                                Kartın yıllık faiz oranını girersen (Düzenle), asgari ödemeyle borcun kaç ayda kapanacağını gösteririm.
+                                                            </p>
+                                                        )
+                                                    }
+                                                    if (sc && sc.months == null) {
+                                                        // EN KRİTİK UYARI — asgari ödeme faizi karşılamıyor.
+                                                        return (
+                                                            <div className="p-[var(--s4)]" style={{ background: 'color-mix(in srgb, var(--flow-out) 12%, transparent)', borderRadius: 'var(--r-button)', border: '1px solid color-mix(in srgb, var(--flow-out) 35%, transparent)' }}>
+                                                                <p style={{ fontSize: 14, lineHeight: 1.5, fontWeight: 600, color: 'var(--flow-out)' }}>
+                                                                    Asgari ödeme bu kartın faizini karşılamıyor — borç asgariyle ödenmez, her ay büyür.
+                                                                </p>
+                                                            </div>
+                                                        )
+                                                    }
+                                                    if (sc && sc.months != null) {
+                                                        return (
+                                                            <p style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink-2)' }}>
+                                                                Asgari ödersen bu borç <b className="tnum" style={{ color: 'var(--ink)' }}>{sc.months} ayda</b> kapanır ve{' '}
+                                                                <b className="tnum" style={{ color: 'var(--flow-out)' }}>{formatCurrency(sc.totalInterest ?? 0)}</b> faiz ödersin.
+                                                            </p>
+                                                        )
+                                                    }
+                                                    return null
+                                                })()}
 
                                                 {/* Borç devir faizi */}
                                                 {debt > 0 && (

@@ -16,6 +16,8 @@ import {
     type PurchasePlanResult,
 } from "@/lib/purchase-plan"
 import { computePurchasePlanContext, type PurchasePlanContext } from "@/lib/purchase-plan-data"
+import { computeInterest } from "@/lib/interest"
+import { deriveAccountBalances } from "@/lib/balance"
 import { PageHeader } from "@/components/ui/page-header"
 import { PrimaryButton } from "@/components/ui/primary-button"
 
@@ -58,6 +60,8 @@ function AlimListesiInner() {
     const [rows, setRows] = useState<PlanRow[]>([])
     const [categories, setCategories] = useState<Category[]>([])
     const [extras, setExtras] = useState<PurchasePlanContext | null>(null)
+    // Faizli borç uyarısı: en yüksek borçlu hesap + kapatınca açılan aylık nefes payı.
+    const [debtWarn, setDebtWarn] = useState<{ name: string; rate: number; debt: number; savedPerMonth: number; totalSaved: number } | null>(null)
     const [hhId, setHhId] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(true)
 
@@ -79,8 +83,8 @@ function AlimListesiInner() {
 
             const [planRes, catRes, accRes, txRes, subRes, instRes, goalRes] = await Promise.all([
                 supabase.from('purchase_plans').select('*').eq('household_id', id).order('priority', { ascending: true }),
-                supabase.from('categories').select('id, name, color, icon').eq('household_id', id),
-                supabase.from('accounts').select('id, type, opening_balance, balance').eq('household_id', id),
+                supabase.from('categories').select('id, name, color, icon, is_interest').eq('household_id', id),
+                supabase.from('accounts').select('id, name, type, opening_balance, balance, interest_rate').eq('household_id', id),
                 supabase.from('transactions')
                     .select('id, account_id, category_id, amount, type, cash_date, description, source_type, spend_nature, source_id, transfer_direction')
                     .eq('household_id', id),
@@ -107,6 +111,20 @@ function AlimListesiInner() {
                 projection: proj, upcoming: up, transactions,
                 goals: (goalRes.data || []) as any, currentMonth: currentMonth(),
             }))
+
+            // Faizli borç uyarısı — türetilmiş bakiye + hesap faiz oranından.
+            const accts = accRes.data || []
+            const interestCatId = (catRes.data || []).find((c: any) => c.is_interest)?.id ?? null
+            const interestTx = interestCatId ? transactions.filter((t: any) => t.category_id === interestCatId) : []
+            const derived = deriveAccountBalances(accts as any, transactions as any, { warn: false })
+            const interest = computeInterest({
+                accounts: accts.map((a: any) => ({ id: a.id, name: a.name, type: a.type, balance: derived.get(a.id) ?? a.balance, interest_rate: a.interest_rate })),
+                transactions: interestTx, today: new Date().toISOString().slice(0, 10),
+            })
+            const top = interest.paidByAccount.find(p => p.debt > 0 && p.ifPaidOff)
+            setDebtWarn(top && top.ifPaidOff
+                ? { name: top.name || 'Hesap', rate: top.interestRate ?? 0, debt: top.debt, savedPerMonth: top.ifPaidOff.savedPerMonth, totalSaved: interest.ifPaidOff.savedPerMonth }
+                : null)
         } catch (e) {
             console.error('Alım listesi verisi alınamadı:', e)
         } finally {
@@ -243,6 +261,7 @@ function AlimListesiInner() {
                                 onChange={setGoalShare} onReset={() => setGoalShare(null)}
                                 hhId={hhId} />
                         )}
+                        {debtWarn && debtWarn.savedPerMonth > 0 && <DebtWarning w={debtWarn} />}
                         {plan && plan.warnings.length > 0 && <WarningsCard warnings={plan.warnings} />}
 
                         <div style={{ background: 'var(--surface)', borderRadius: 'var(--r-card)' }} className="overflow-hidden py-[var(--s2)]">
@@ -346,6 +365,18 @@ function TakasBar({ sharedPool, goalShare, monthlyRoom, isDefault, onChange, onR
 }
 
 // ─── uyarılar ────────────────────────────────────────────────────────────────
+
+function DebtWarning({ w }: { w: { name: string; rate: number; debt: number; savedPerMonth: number } }) {
+    return (
+        <section style={{ background: 'color-mix(in srgb, var(--flow-out) 8%, var(--surface))', borderRadius: 'var(--r-card)', border: '1px solid color-mix(in srgb, var(--flow-out) 30%, transparent)' }} className="p-[var(--s4)]">
+            <p style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink-2)' }}>
+                <b style={{ color: 'var(--ink)' }}>{w.name}</b>&apos;da{w.rate > 0 ? <> %<span className="tnum">{Math.round(w.rate)}</span> faizle</> : ''}{' '}
+                <b className="tnum" style={{ color: 'var(--ink)' }}>{formatTL(w.debt)}</b> borcun var. Bu borcu kapatmak aylık{' '}
+                <b className="tnum" style={{ color: 'var(--flow-out)' }}>{formatTL(w.savedPerMonth)}</b> nefes payı açar — alımlardan önce değerlendir.
+            </p>
+        </section>
+    )
+}
 
 function WarningsCard({ warnings }: { warnings: string[] }) {
     return (

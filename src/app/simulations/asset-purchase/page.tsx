@@ -6,6 +6,7 @@ import { supabase, ensureHouseholdExists } from "@/lib/supabase"
 import { Loader2, X } from "lucide-react"
 import { buildProjection, type ProjectionInput } from "@/lib/projection"
 import { computeBreathingRoom, type BreathingRoom } from "@/lib/breathing-room"
+import { avgMonthlyInterest } from "@/lib/interest"
 import { deriveAccountBalances } from "@/lib/balance"
 import { detectEndedSeries, type EstimateTransaction } from "@/lib/estimate"
 import { CategoryNatureClassifier } from "@/components/categories/category-nature-classifier"
@@ -30,6 +31,7 @@ export default function AssetPurchasePage() {
     const [projectionInput, setProjectionInput] = useState<ProjectionInput | null>(null)
     const [accounts, setAccounts] = useState<Account[]>([])
     const [hhId, setHhId] = useState<string | null>(null)
+    const [interestCatId, setInterestCatId] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(true)
 
     const [amount, setAmount] = useState(50000)
@@ -45,7 +47,7 @@ export default function AssetPurchasePage() {
             const id = await ensureHouseholdExists(user.id)
             if (!id) return
             setHhId(id)
-            const [accRes, txRes, subRes, instRes, goalRes] = await Promise.all([
+            const [accRes, txRes, subRes, instRes, goalRes, catRes] = await Promise.all([
                 supabase.from('accounts').select('id, type, opening_balance, balance').eq('household_id', id),
                 supabase.from('transactions')
                     .select('id, account_id, category_id, amount, type, cash_date, description, source_type, spend_nature, source_id, transfer_direction, categories(name)')
@@ -53,7 +55,9 @@ export default function AssetPurchasePage() {
                 supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status').eq('household_id', id),
                 supabase.from('installments').select('id, description, kind, installment_payments(id, payment_date, amount)').eq('household_id', id),
                 supabase.from('goals').select('id, name, target_amount, saved_tl, monthly_alloc, status').eq('household_id', id),
+                supabase.from('categories').select('id, is_interest').eq('household_id', id),
             ])
+            setInterestCatId((catRes.data || []).find((c: any) => c.is_interest)?.id ?? null)
             const transactions = (txRes.data || []).map((t: any) => ({ ...t, categoryName: t.categories?.name ?? null }))
             const installments = (instRes.data || []).map((i: any) => ({ ...i, payments: i.installment_payments || [] }))
             setProjectionInput({
@@ -100,18 +104,26 @@ export default function AssetPurchasePage() {
         // bakiye (saklanan balance güvenilir değil, bkz. lib/balance.ts).
         const derived = deriveAccountBalances(accounts, projectionInput.transactions as any, { warn: false })
         const liquid = accounts.filter(a => a.type === 'bank' || a.type === 'cash').reduce((s, a) => s + (derived.get(a.id) ?? 0), 0)
+        const txs = projectionInput.transactions as EstimateTransaction[]
+        // Faiz: alışkanlıktan dışla, aylık ortalamasını zorunlu çıkışa ekle (net değişmez).
+        const interestTx = interestCatId ? txs.filter(t => t.category_id === interestCatId) : []
+        const extraMandatory = interestCatId ? avgMonthlyInterest(interestTx as any, cm) : 0
         return {
             cm,
             baseIncomeFull: Math.round(incKnown + incEst),
             baseIncomeCons: Math.round(incKnown),
             mandatory,
-            txs: projectionInput.transactions as EstimateTransaction[],
+            txs,
             liquid,
+            extraMandatory,
         }
-    }, [projectionInput, extraFixed, accounts])
+    }, [projectionInput, extraFixed, accounts, interestCatId])
 
     const br = (baseIncome: number, monthlyInstallment?: number): BreathingRoom | null =>
-        base ? computeBreathingRoom({ baseIncome, mandatoryOutflow: base.mandatory, transactions: base.txs, currentMonth: base.cm, monthlyInstallment }) : null
+        base ? computeBreathingRoom({
+            baseIncome, mandatoryOutflow: base.mandatory, transactions: base.txs, currentMonth: base.cm, monthlyInstallment,
+            excludeCategoryIds: interestCatId ? [interestCatId] : undefined, extraMandatory: base.extraMandatory,
+        }) : null
 
     // Seçili senaryo (taksit sayısı = count).
     const monthly = amount / Math.max(1, count)

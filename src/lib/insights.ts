@@ -45,6 +45,8 @@ export type InsightsInput = {
     accounts: InsightAccount[]
     /** Hesaplanmış bakiyeler (lib/balance.ts). Kart borcu negatif değerdir. */
     balances?: Map<string, number>
+    /** "Faiz & ücretler" kategorisinin id'si — faiz artış kuralı için. */
+    interestCategoryId?: string
 }
 
 const MAX_INSIGHTS = 3
@@ -276,6 +278,34 @@ export function ruleCardUsage(
 
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Kural: bu ay faiz ödemesi arttı — asgari ödeme tuzağının erken sinyali (yüksek öncelik)
+// ---------------------------------------------------------------------------
+
+export function ruleInterestIncrease(
+    transactions: InsightTransaction[],
+    currentMonth: string,
+    interestCategoryId?: string
+): Insight | null {
+    if (!interestCategoryId) return null
+    const sumFor = (month: string) => transactions.reduce((s, t) => {
+        if (t.type !== 'expense' || !t.cash_date) return s
+        if (t.category_id !== interestCategoryId) return s
+        if (monthKeyOf(t.cash_date) !== month) return s
+        return s + Math.abs(toNumber(t.amount))
+    }, 0)
+    const now = sumFor(currentMonth)
+    if (now <= 0) return null
+    const prev = sumFor(shiftMonth(currentMonth, -1))
+    if (prev > 0 && now - prev >= 50) {
+        return { text: `Bu ay faize ${formatTL(now)} ödedin — geçen ay ${formatTL(prev)} idi.`, severity: 'dikkat', priority: 95 }
+    }
+    if (prev <= 0) {
+        return { text: `Bu ay faize ${formatTL(now)} ödedin.`, severity: 'dikkat', priority: 92 }
+    }
+    return null
+}
+
 export function buildInsights(
     input: InsightsInput,
     options: { currentMonth?: string; cardUsageThreshold?: number } = {}
@@ -287,6 +317,7 @@ export function buildInsights(
 
     const candidates = [
         ruleNegativeBalance(input.projection),
+        ruleInterestIncrease(input.transactions, currentMonth, input.interestCategoryId),
         ruleHeaviestMonth(input.upcoming),
         ruleCardLoadJump(input.transactions, input.accounts, currentMonth),
         ruleCategoryGrowth(input.transactions, currentMonth),

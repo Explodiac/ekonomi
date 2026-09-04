@@ -109,6 +109,10 @@ export function computeRunway(input: RunwayInput): RunwayResult {
         if (a.type && LIQUID_TYPES.has(a.type)) {
             liquidIds.add(a.id)
             liquidFree += input.balances.get(a.id) ?? 0
+        } else if (a.type === 'esnek_hesap') {
+            // KMH: pozitif bakiye likit; negatif (kullanılan kredi) likide sayılmaz.
+            const b = input.balances.get(a.id) ?? 0
+            if (b > 0) { liquidIds.add(a.id); liquidFree += b }
         }
     }
     liquidFree = round2(liquidFree)

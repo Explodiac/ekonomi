@@ -15,6 +15,7 @@ type Category = {
     type: 'income' | 'expense'
     is_recurring: boolean
     parent_id: string | null
+    is_interest?: boolean
 }
 
 export default function CategoriesPage() {
@@ -23,6 +24,7 @@ export default function CategoriesPage() {
     const [type, setType] = useState<'income' | 'expense'>('expense')
     const [parentId, setParentId] = useState<string>('')
     const [isRecurring, setIsRecurring] = useState(false)
+    const [isInterest, setIsInterest] = useState(false)
     const [hhId, setHhId] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [isSaving, setIsSaving] = useState(false)
@@ -37,7 +39,7 @@ export default function CategoriesPage() {
             if (!user) return
             const id = await ensureHouseholdExists(user.id)
             setHhId(id)
-            const { data, error } = await supabase.from('categories').select('id, name, type, is_recurring, parent_id').eq('household_id', id).order('name')
+            const { data, error } = await supabase.from('categories').select('id, name, type, is_recurring, parent_id, is_interest').eq('household_id', id).order('name')
             if (error) throw error
             setCategories(data || [])
         } catch (e: any) {
@@ -61,12 +63,18 @@ export default function CategoriesPage() {
         if (!name.trim() || !hhId) return
         setIsSaving(true)
         try {
+            const markInterest = type === 'expense' && isInterest
+            // Tek "Faiz & ücretler" kategorisi: yeni işaretlenirse eskisinin bayrağı kalkar.
+            if (markInterest) {
+                await supabase.from('categories').update({ is_interest: false }).eq('household_id', hhId).eq('is_interest', true)
+            }
             const { error } = await supabase.from('categories').insert({
                 household_id: hhId, name: name.trim(), type,
                 parent_id: parentId || null, is_recurring: isRecurring, budget_limit: 0,
+                is_interest: markInterest,
             })
             if (error) throw error
-            setName(''); setParentId(''); setIsRecurring(false)
+            setName(''); setParentId(''); setIsRecurring(false); setIsInterest(false)
             fetchAll()
         } catch (e: any) {
             alert('Kategori eklenemedi: ' + e.message)
@@ -153,6 +161,17 @@ export default function CategoriesPage() {
                         <Toggle on={isRecurring} onToggle={() => setIsRecurring(v => !v)} />
                         <span style={{ fontSize: 13.5, color: 'var(--ink-2)' }}>Tekrarlayan işlem (her ay otomatik takip)</span>
                     </label>
+                    {type === 'expense' && (
+                        <label className="flex cursor-pointer items-start gap-[var(--s3)]">
+                            <Toggle on={isInterest} onToggle={() => setIsInterest(v => !v)} />
+                            <span style={{ fontSize: 13.5, color: 'var(--ink-2)' }}>
+                                Faiz &amp; ücretler kategorisi
+                                <span className="block" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                                    Kart/KMH faizi, gecikme, aidat. Nefes payında alışkanlık değil zorunlu çıkış sayılır; bütçe konulamaz.
+                                </span>
+                            </span>
+                        </label>
+                    )}
                     <PrimaryButton type="submit" disabled={isSaving} className="w-full">
                         {isSaving ? '…' : 'Kategoriyi kaydet'}
                     </PrimaryButton>
