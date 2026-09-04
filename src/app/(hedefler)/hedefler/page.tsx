@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { supabase, ensureHouseholdExists } from "@/lib/supabase"
-import { Loader2, ChevronDown, Check, X, Archive, Sparkles, Plus } from "lucide-react"
+import { Loader2, ChevronDown, Check, X, Archive, Sparkles, Plus, Minus } from "lucide-react"
 import { PageHeader } from "@/components/ui/page-header"
 import { PrimaryButton } from "@/components/ui/primary-button"
 import { GoalModal } from "@/components/goals/GoalModal"
@@ -273,7 +273,7 @@ function GoalDetail({ goal, progress, accounts, contribs, onChanged, onClose }: 
 }) {
     const unit = unitOf(goal)
     const [saving, setSaving] = useState(false)
-    const [contribOpen, setContribOpen] = useState(false)
+    const [contribMode, setContribMode] = useState<'deposit' | 'withdraw' | null>(null)
 
     const patch = async (fields: Record<string, any>) => {
         setSaving(true)
@@ -334,7 +334,7 @@ function GoalDetail({ goal, progress, accounts, contribs, onChanged, onClose }: 
             </div>
 
             {/* ETA */}
-            <EtaLine goal={goal} progress={progress} onDefineAlloc={() => setContribOpen(false)} />
+            <EtaLine goal={goal} progress={progress} onDefineAlloc={() => setContribMode(null)} />
 
             {progress.unconvertedCount > 0 && (
                 <p className="mt-[var(--s2)]" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
@@ -369,9 +369,16 @@ function GoalDetail({ goal, progress, accounts, contribs, onChanged, onClose }: 
             <div className="mt-[var(--s5)]">
                 <div className="mb-[var(--s2)] flex items-center justify-between">
                     <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>Katkılar</span>
-                    <button onClick={() => setContribOpen(true)} className="inline-flex items-center gap-[3px]" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--accent)' }}>
-                        <Plus className="h-[13px] w-[13px]" /> Katkı ekle
-                    </button>
+                    <div className="flex items-center gap-[var(--s3)]">
+                        <button onClick={() => setContribMode('deposit')} className="inline-flex items-center gap-[3px]" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--accent)' }}>
+                            <Plus className="h-[13px] w-[13px]" /> Katkı ekle
+                        </button>
+                        {totalContrib > 0 && (
+                            <button onClick={() => setContribMode('withdraw')} className="inline-flex items-center gap-[3px]" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-3)' }}>
+                                <Minus className="h-[13px] w-[13px]" /> Para çek
+                            </button>
+                        )}
+                    </div>
                 </div>
                 {bySource.size === 0 ? (
                     <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>Henüz katkı kaydı yok.</p>
@@ -401,8 +408,8 @@ function GoalDetail({ goal, progress, accounts, contribs, onChanged, onClose }: 
                 )}
             </div>
 
-            {contribOpen && (
-                <ContributeModal goal={goal} accounts={accounts} onClose={() => setContribOpen(false)} onDone={() => { setContribOpen(false); onChanged() }} />
+            {contribMode && (
+                <ContributeModal goal={goal} accounts={accounts} mode={contribMode} onClose={() => setContribMode(null)} onDone={() => { setContribMode(null); onChanged() }} />
             )}
         </div>
     )
@@ -455,31 +462,46 @@ function EditRow({ label, value, type, accounts, onSave }: {
     )
 }
 
-/** Katkı ekle — o ay için goal_contributions (upsert). */
-function ContributeModal({ goal, accounts, onClose, onDone }: { goal: Goal; accounts: Account[]; onClose: () => void; onDone: () => void }) {
-    const [amount, setAmount] = useState(goal.monthly_alloc ? String(goal.monthly_alloc) : '')
+/** Katkı ekle / Para çek — o ay için goal_contributions (tek satır, upsert). */
+function ContributeModal({ goal, accounts, mode = 'deposit', onClose, onDone }: { goal: Goal; accounts: Account[]; mode?: 'deposit' | 'withdraw'; onClose: () => void; onDone: () => void }) {
+    const isWithdraw = mode === 'withdraw'
+    const [amount, setAmount] = useState(isWithdraw ? '' : (goal.monthly_alloc ? String(goal.monthly_alloc) : ''))
     const [month, setMonth] = useState(todayStr().slice(0, 7))
     const [accId, setAccId] = useState(goal.source_account_id ?? '')
     const [saving, setSaving] = useState(false)
 
+    // UNIQUE(goal_id, period): ay başına tek satır. Bu yüzden çekim, ayrı bir
+    // negatif satır DEĞİL, o ayın mevcut net tutarından düşülerek upsert edilir
+    // (read-modify-write). Katkı eski davranışıyla o ayı SET eder; çekim netler.
+    // computeGoalProgress işaretli tutarları topladığı için ayrı hesap yok.
     const save = async () => {
         const amt = parseFloat(amount)
-        if (!amt) return
+        if (!amt || amt <= 0) return
         setSaving(true)
         try {
             const { data: { user } } = await supabase.auth.getUser()
             const hhId = user ? await ensureHouseholdExists(user.id) : null
+            const period = `${month}-01`
+            let newAmount = amt
+            let accountId: string | null = accId || null
+            if (isWithdraw) {
+                const { data: existing } = await supabase.from('goal_contributions')
+                    .select('amount, account_id').eq('goal_id', goal.id).eq('period', period).maybeSingle()
+                const current = existing ? Number(existing.amount) : 0
+                newAmount = Math.round((current - amt) * 100) / 100        // net (negatif olabilir)
+                accountId = accId || existing?.account_id || null           // seçilmezse kaynağı koru
+            }
             const { error } = await supabase.from('goal_contributions')
-                .upsert({ household_id: hhId, goal_id: goal.id, period: `${month}-01`, amount: amt, account_id: accId || null }, { onConflict: 'goal_id,period' })
+                .upsert({ household_id: hhId, goal_id: goal.id, period, amount: newAmount, account_id: accountId }, { onConflict: 'goal_id,period' })
             if (error) throw error
             onDone()
-        } catch (e) { console.error('Katkı kaydedilemedi:', e); setSaving(false) }
+        } catch (e) { console.error(isWithdraw ? 'Çekim kaydedilemedi:' : 'Katkı kaydedilemedi:', e); setSaving(false) }
     }
 
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-[var(--s4)]" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
             <div className="w-full max-w-[380px] p-[22px]" style={{ background: 'var(--surface)', borderRadius: 'var(--r-card)' }} onClick={e => e.stopPropagation()}>
-                <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Katkı ekle · {goal.name}</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>{isWithdraw ? 'Para çek' : 'Katkı ekle'} · {goal.name}</div>
                 <div className="mt-[var(--s4)] flex flex-col gap-[var(--s3)]">
                     <label className="flex flex-col gap-[4px]">
                         <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Ay</span>
@@ -490,16 +512,21 @@ function ContributeModal({ goal, accounts, onClose, onDone }: { goal: Goal; acco
                         <input autoFocus type="number" value={amount} onChange={e => setAmount(e.target.value)} className="px-[var(--s3)] py-[var(--s2)] outline-none" style={{ fontSize: 14, background: 'var(--surface-2)', borderRadius: 'var(--r-button)', color: 'var(--ink)', border: '1px solid var(--border)' }} />
                     </label>
                     <label className="flex flex-col gap-[4px]">
-                        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Hesap</span>
+                        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{isWithdraw ? 'Hangi hesaba' : 'Hesap'}</span>
                         <select value={accId} onChange={e => setAccId(e.target.value)} className="px-[var(--s3)] py-[var(--s2)] outline-none" style={{ fontSize: 14, background: 'var(--surface-2)', borderRadius: 'var(--r-button)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
                             <option value="">Hesapsız</option>
                             {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                         </select>
                     </label>
+                    {isWithdraw && (
+                        <p style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--ink-3)' }}>
+                            Çekim o ayın net katkısından düşülür; biriken toplam azalır.
+                        </p>
+                    )}
                 </div>
                 <div className="mt-[var(--s5)] flex justify-end gap-[var(--s3)]">
                     <button onClick={onClose} style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink-3)' }} className="px-[var(--s3)] py-[var(--s2)]">Vazgeç</button>
-                    <button onClick={save} disabled={saving || !amount} className="rounded-[var(--r-button)] px-[var(--s4)] py-[var(--s2)] disabled:opacity-50" style={{ fontSize: 14, fontWeight: 600, background: 'var(--accent)', color: '#fff' }}>{saving ? 'Kaydediliyor…' : 'Kaydet'}</button>
+                    <button onClick={save} disabled={saving || !amount} className="rounded-[var(--r-button)] px-[var(--s4)] py-[var(--s2)] disabled:opacity-50" style={{ fontSize: 14, fontWeight: 600, background: 'var(--accent)', color: '#fff' }}>{saving ? 'Kaydediliyor…' : isWithdraw ? 'Çek' : 'Kaydet'}</button>
                 </div>
             </div>
         </div>

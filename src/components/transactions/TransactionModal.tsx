@@ -8,6 +8,7 @@ import { X, Loader2, Sparkles } from "lucide-react"
 import { suggestCategory } from "@/lib/auto-categorize"
 import { calculateCashDate, resolveCashDate } from "@/lib/cash-date"
 import { previewInstallment, monthLocative, type UpcomingInput } from "@/lib/upcoming"
+import { planTransferEdit } from "@/lib/transfer-edit"
 
 type ModalProps = {
     isOpen: boolean
@@ -15,9 +16,11 @@ type ModalProps = {
     type: 'income' | 'expense' | 'transfer'
     onSuccess: () => void
     initialData?: any
+    /** Açılışta taksit modunu açık başlat (yalnız yeni gider kaydında geçerli). */
+    initialInstallment?: boolean
 }
 
-export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess, initialData }: ModalProps) {
+export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess, initialData, initialInstallment }: ModalProps) {
     const [type, setType] = useState<'income' | 'expense' | 'transfer'>(initialType)
     const [amount, setAmount] = useState("")
     const [description, setDescription] = useState("")
@@ -51,6 +54,7 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                 if (initialData.type === 'transfer') {
                     setToAccount(initialData.to_account_id || "")
                 }
+                setIsInstallment(false) // düzenlemede taksit oluşturma yok
             } else {
                 setAmount("")
                 setDescription("")
@@ -59,9 +63,10 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                 setSelectedCategory("")
                 setToAccount("")
                 setType(initialType)
+                setIsInstallment(!!initialInstallment && initialType === 'expense')
             }
         }
-    }, [isOpen, initialType, initialData])
+    }, [isOpen, initialType, initialData, initialInstallment])
 
     const handleDescriptionChange = async (val: string) => {
         setDescription(val)
@@ -168,7 +173,8 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!amount || !selectedAccount || !householdId) return
-        if (type === 'transfer' && !toAccount) return
+        // Transfer düzenlemede hedef hesap formda yok (bacaklar DB'den okunur); yalnız yeni transferde gerekir.
+        if (type === 'transfer' && !toAccount && !initialData) return
 
         setIsLoading(true)
         try {
@@ -178,6 +184,47 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
             const numAmount = parseFloat(amount)
             const numInstallmentCount = parseInt(installmentCount) || 1
             const monthlyAmount = numAmount / numInstallmentCount
+
+            // --- TRANSFER DÜZENLEME: İKİ BACAK BİRLİKTE ---
+            // transfer_group_id dolu bir hareket düzenlenirken her iki bacağın tutar,
+            // tarih ve açıklaması birlikte güncellenir; her bacak KENDİ cash_date'ini
+            // kendi hesabından çözer (kaynak banka, hedef kart olabilir) ve her
+            // hesabın bakiyesi transactionEffect ile düzeltilir. Yön ve hesaplar
+            // değişmez (ayrı akış). Silmedeki iki-bacak bütünlüğünün eşidir.
+            if (initialData && initialData.transfer_group_id) {
+                const { data: legRows, error: legErr } = await supabase
+                    .from('transactions')
+                    .select('id, account_id, transfer_direction, cash_date')
+                    .eq('transfer_group_id', initialData.transfer_group_id)
+                if (legErr) throw legErr
+                if (!legRows || legRows.length === 0) throw new Error('Transfer bacakları bulunamadı')
+
+                const { data: freshAccounts } = await supabase.from('accounts').select('*').eq('household_id', householdId)
+                const accs = freshAccounts || accounts
+
+                const plan = planTransferEdit({
+                    legs: legRows as any,
+                    accounts: accs as any,
+                    oldAmount: Number(initialData.amount),
+                    newAmount: numAmount,
+                    newDate: date,
+                })
+
+                const txnDate = new Date(date).toISOString()
+                await Promise.all(plan.legUpdates.map(u =>
+                    supabase.from('transactions').update({
+                        amount: u.amount, transaction_date: txnDate, cash_date: u.cash_date, description,
+                    }).eq('id', u.id)
+                ))
+                await Promise.all(plan.balanceUpdates.map(b =>
+                    supabase.from('accounts').update({ balance: b.balance }).eq('id', b.accountId)
+                ))
+
+                await createNotification(householdId, 'Transfer Güncellendi', `${user.email?.split('@')[0] || 'Kullanıcı'}: transfer ₺${numAmount} olarak güncellendi.`, 'info')
+                setAmount(""); setDescription("")
+                onSuccess(); onClose()
+                return
+            }
 
             // --- UNDO OLD BALANCE EFFECTS IF EDITING ---
             if (initialData) {
@@ -415,36 +462,46 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                         </select>
                     </div>
 
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">{type === 'transfer' ? 'Kaynak Hesap' : 'Hesap Seçin'}</label>
-                        <select
-                            required
-                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                            value={selectedAccount}
-                            onChange={(e) => setSelectedAccount(e.target.value)}
-                        >
-                            <option value="" disabled>Hesap seçiniz...</option>
-                            {accounts.map(acc => (
-                                <option key={acc.id} value={acc.id}>{acc.name} (₺{acc.balance})</option>
-                            ))}
-                        </select>
-                    </div>
+                    {/* Transfer düzenlemesinde hesap/yön değişmez (ayrı akış); yalnız
+                        tutar, tarih ve açıklama düzenlenir, iki bacağa birlikte uygulanır. */}
+                    {initialData && type === 'transfer' ? (
+                        <p className="text-xs text-muted-foreground rounded-md bg-muted/30 border border-border/50 p-3">
+                            Transferin tutarı, tarihi ve açıklaması iki bacağa birlikte uygulanır. Hesap ya da yön değiştirmek ayrı bir işlemdir.
+                        </p>
+                    ) : (
+                        <>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">{type === 'transfer' ? 'Kaynak Hesap' : 'Hesap Seçin'}</label>
+                                <select
+                                    required
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                                    value={selectedAccount}
+                                    onChange={(e) => setSelectedAccount(e.target.value)}
+                                >
+                                    <option value="" disabled>Hesap seçiniz...</option>
+                                    {accounts.map(acc => (
+                                        <option key={acc.id} value={acc.id}>{acc.name} (₺{acc.balance})</option>
+                                    ))}
+                                </select>
+                            </div>
 
-                    {type === 'transfer' && (
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Hedef Hesap</label>
-                            <select
-                                required
-                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                                value={toAccount}
-                                onChange={(e) => setToAccount(e.target.value)}
-                            >
-                                <option value="" disabled>Hedef hesap seçiniz...</option>
-                                {accounts.filter(a => a.id !== selectedAccount).map(acc => (
-                                    <option key={acc.id} value={acc.id}>{acc.name} (₺{acc.balance})</option>
-                                ))}
-                            </select>
-                        </div>
+                            {type === 'transfer' && (
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Hedef Hesap</label>
+                                    <select
+                                        required
+                                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                                        value={toAccount}
+                                        onChange={(e) => setToAccount(e.target.value)}
+                                    >
+                                        <option value="" disabled>Hedef hesap seçiniz...</option>
+                                        {accounts.filter(a => a.id !== selectedAccount).map(acc => (
+                                            <option key={acc.id} value={acc.id}>{acc.name} (₺{acc.balance})</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                        </>
                     )}
 
                     <div className="space-y-2">

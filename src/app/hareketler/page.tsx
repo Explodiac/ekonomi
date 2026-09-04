@@ -9,6 +9,7 @@ import { AccountIcon, shortAccount } from "@/components/dashboard/account-icon"
 import { QuickEntry } from "@/components/dashboard/quick-entry"
 import { Segmented } from "@/components/ui/segmented"
 import { TransactionDetail } from "@/components/transactions/transaction-detail"
+import { TransactionModal } from "@/components/transactions/TransactionModal"
 import { useIsDesktop } from "@/hooks/use-is-desktop"
 
 function formatTL(amount: number): string {
@@ -76,7 +77,9 @@ function HareketlerInner() {
 
     const [selectedId, setSelectedId] = useState<string | null>(null)
     const isDesktop = useIsDesktop()
-    const [showAdd, setShowAdd] = useState(false)
+    const [addMenuOpen, setAddMenuOpen] = useState(false)   // + menüsü açık mı
+    const [showQuick, setShowQuick] = useState(false)        // hızlı giriş satırı açık mı
+    const [modal, setModal] = useState<{ type: 'income' | 'expense' | 'transfer'; installment?: boolean } | null>(null) // tam form
     const [showSearch, setShowSearch] = useState(false)
 
     // Filtre + sıralama + arama durumu URL'de: paylaşılabilir, geri-gel çalışır.
@@ -231,9 +234,23 @@ function HareketlerInner() {
                 <IconBtn label="Ara" onClick={() => setShowSearch(s => !s)} active={showSearch || !!query}>
                     <Search className="h-[16px] w-[16px]" />
                 </IconBtn>
-                <IconBtn label="Ekle" onClick={() => setShowAdd(s => !s)} active={showAdd}>
-                    <Plus className="h-[16px] w-[16px]" />
-                </IconBtn>
+                <div className="relative">
+                    <IconBtn label="Ekle" onClick={() => setAddMenuOpen(o => !o)} active={addMenuOpen || showQuick || !!modal}>
+                        <Plus className="h-[16px] w-[16px]" />
+                    </IconBtn>
+                    <Popover open={addMenuOpen} onClose={() => setAddMenuOpen(false)}>
+                        <div className="flex flex-col gap-[2px]">
+                            <AddMenuItem title="Hızlı giriş" desc="Tek satır: tutar + kategori"
+                                onClick={() => { setShowQuick(true); setAddMenuOpen(false) }} />
+                            <AddMenuItem title="Detaylı kayıt" desc="Tarih, hesap, açıklama — tam form"
+                                onClick={() => { setModal({ type: 'expense' }); setAddMenuOpen(false) }} />
+                            <AddMenuItem title="Transfer" desc="Hesaplar arası para aktar"
+                                onClick={() => { setModal({ type: 'transfer' }); setAddMenuOpen(false) }} />
+                            <AddMenuItem title="Taksitli alım" desc="Gideri aylara böl"
+                                onClick={() => { setModal({ type: 'expense', installment: true }); setAddMenuOpen(false) }} />
+                        </div>
+                    </Popover>
+                </div>
             </div>
 
             {showSearch && (
@@ -252,17 +269,23 @@ function HareketlerInner() {
                 </div>
             )}
 
-            {showAdd && (
-                <div className="mb-[var(--s4)]">
-                    <QuickEntry
-                        accounts={accounts}
-                        categories={categories}
-                        transactions={txs}
-                        currentMonthKey={todayISO().slice(0, 7)}
-                        onSuccess={() => { fetchData(); setShowAdd(false) }}
-                        budgetPeriods={budgetPeriods}
-                        negativeCarry={negativeCarry}
-                    />
+            {showQuick && (
+                <div className="mb-[var(--s4)] flex items-start gap-[var(--s2)]">
+                    <div className="min-w-0 flex-1">
+                        <QuickEntry
+                            accounts={accounts}
+                            categories={categories}
+                            transactions={txs}
+                            currentMonthKey={todayISO().slice(0, 7)}
+                            onSuccess={() => { fetchData(); setShowQuick(false) }}
+                            budgetPeriods={budgetPeriods}
+                            negativeCarry={negativeCarry}
+                        />
+                    </div>
+                    <button onClick={() => setShowQuick(false)} aria-label="Hızlı girişi kapat"
+                        className="mt-[6px] shrink-0 p-1" style={{ color: 'var(--ink-3)' }}>
+                        <X className="h-[16px] w-[16px]" />
+                    </button>
                 </div>
             )}
 
@@ -333,7 +356,30 @@ function HareketlerInner() {
                     </div>
                 </div>
             )}
+
+            {/* Tam form — Detaylı kayıt / Transfer / Taksitli alım */}
+            {modal && (
+                <TransactionModal
+                    isOpen
+                    type={modal.type}
+                    initialInstallment={modal.installment}
+                    onClose={() => setModal(null)}
+                    onSuccess={() => { fetchData(); setModal(null) }}
+                />
+            )}
         </div>
+    )
+}
+
+/** + menüsü kalemi: başlık + kısa açıklama, hover'da --surface vurgusu. */
+function AddMenuItem({ title, desc, onClick }: { title: string; desc: string; onClick: () => void }) {
+    return (
+        <button onClick={onClick}
+            className="flex flex-col gap-[1px] px-[var(--s3)] py-[var(--s2)] text-left transition-colors hover:bg-[var(--surface)]"
+            style={{ borderRadius: 'var(--r-button)' }}>
+            <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ink)' }}>{title}</span>
+            <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{desc}</span>
+        </button>
     )
 }
 

@@ -98,6 +98,21 @@ export function TransactionDetail({ tx, accounts, categories, allTxs, onChanged,
         }
     }
 
+    // Transferde ortak alanlar (not gibi) İKİ BACAĞA birlikte yazılır — silme ve
+    // düzenlemeyle aynı iki-bacak bütünlüğü.
+    const patchGroup = async (fields: Record<string, any>) => {
+        setSaving(true)
+        try {
+            const { error } = await supabase.from('transactions').update(fields).eq('transfer_group_id', tx.transfer_group_id)
+            if (error) throw error
+            onChanged()
+        } catch (e) {
+            console.error('Transfer güncellenemedi:', e)
+        } finally {
+            setSaving(false)
+        }
+    }
+
     const changeCategory = (categoryId: string) => { setEditing(null); patch({ category_id: categoryId || null }) }
 
     const changeAccount = (accountId: string) => {
@@ -113,7 +128,11 @@ export function TransactionDetail({ tx, accounts, categories, allTxs, onChanged,
         patch({ account_id: accountId, cash_date: newCash })
     }
 
-    const saveNote = () => { if ((tx.note ?? '') !== note) patch({ note: note || null }) }
+    const saveNote = () => {
+        if ((tx.note ?? '') === note) return
+        const fields = { note: note || null }
+        if (isTransfer && tx.transfer_group_id) patchGroup(fields); else patch(fields)
+    }
 
     const remove = async () => {
         if (!confirm('Bu hareket silinsin mi?')) return
@@ -167,10 +186,11 @@ export function TransactionDetail({ tx, accounts, categories, allTxs, onChanged,
                 </Field>
 
                 <Field label="Hesap">
-                    <button onClick={() => setEditing(editing === 'account' ? null : 'account')} className="inline-flex items-center gap-[var(--s2)]">
+                    {/* Transferde hesap değişimi ayrı akış (yön + cash_date yeniden hesap); burada kilitli. */}
+                    <button onClick={() => setEditing(editing === 'account' ? null : 'account')} disabled={isTransfer} className="inline-flex items-center gap-[var(--s2)]">
                         <AccountIcon type={account?.type} size={22} />
                         <span style={{ fontSize: 13.5, color: 'var(--ink)' }}>{shortAccount(account?.name) || '—'}</span>
-                        <ChevronDown className="h-[13px] w-[13px]" style={{ color: 'var(--ink-3)' }} />
+                        {!isTransfer && <ChevronDown className="h-[13px] w-[13px]" style={{ color: 'var(--ink-3)' }} />}
                     </button>
                 </Field>
 
