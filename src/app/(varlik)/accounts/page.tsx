@@ -14,7 +14,7 @@ import { PrimaryButton } from "@/components/ui/primary-button"
 type Account = {
     id: string;
     name: string;
-    type: 'bank' | 'credit_card' | 'investment' | 'cash';
+    type: 'bank' | 'credit_card' | 'investment' | 'cash' | 'esnek_hesap';
     balance: number;
     opening_balance: number;
     currency: string;
@@ -168,7 +168,8 @@ export default function AccountsPage() {
         }
     }
 
-    const bankAndCash = accounts.filter(a => a.type === 'bank' || a.type === 'cash')
+    // Esnek hesap (KMH) burada da görünür — aksi halde hiçbir grupta olmayıp kaybolur.
+    const bankAndCash = accounts.filter(a => a.type === 'bank' || a.type === 'cash' || a.type === 'esnek_hesap')
     const creditCards = accounts.filter(a => a.type === 'credit_card')
     const investments = accounts.filter(a => a.type === 'investment')
 

@@ -104,7 +104,12 @@ export default function AssetPurchasePage() {
         // Likit bakiye (stok) — peşin senaryonun sessiz alt satırı için. Türetilmiş
         // bakiye (saklanan balance güvenilir değil, bkz. lib/balance.ts).
         const derived = deriveAccountBalances(accounts, projectionInput.transactions as any, { warn: false })
-        const liquid = accounts.filter(a => a.type === 'bank' || a.type === 'cash').reduce((s, a) => s + (derived.get(a.id) ?? 0), 0)
+        const liquid = accounts.reduce((s, a) => {
+            const b = derived.get(a.id) ?? 0
+            if (a.type === 'bank' || a.type === 'cash') return s + b
+            if (a.type === 'esnek_hesap') return s + Math.max(0, b) // pozitif KMH likit; negatif borç, sayılmaz
+            return s
+        }, 0)
         const txs = projectionInput.transactions as EstimateTransaction[]
         return {
             cm,

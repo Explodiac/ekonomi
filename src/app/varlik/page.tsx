@@ -129,7 +129,7 @@ const RATE_KEY: Record<string, string> = {
 }
 
 // ── Tipler ──────────────────────────────────────────────────────
-type Account = { id: string; name: string; type: string; balance: number; opening_balance: number; currency: string; credit_limit: number; cut_date?: number; due_date?: number }
+type Account = { id: string; name: string; type: string; balance: number; opening_balance: number; currency: string; credit_limit: number; cut_date?: number; due_date?: number; interest_rate?: number | null }
 type Tx = { id: string; account_id: string | null; category_id?: string | null; amount: number; type: string; cash_date: string; transaction_date: string; description?: string; transfer_direction?: string | null; source_type?: string | null; categories?: { name: string } | null }
 type Installment = { id: string; description: string; account_id: string; kind: string; total_amount: number; installments_count: number; payments: { id: string; amount: number; payment_date: string; status: string }[] }
 type Selection = { kind: 'card' | 'account' | 'investment' | 'loan'; id: string } | null
@@ -709,6 +709,18 @@ function DetailPanel(props: any) {
                     </DetailSection>
                 )
             })()}
+
+            {/* Faiz oranı girilmemiş borçlu hesap → ipucu (faiz hesaplanamaz/sorulamaz). */}
+            {isAccountLike && account && (account.type === 'credit_card' || account.type === 'esnek_hesap')
+                && (account.interest_rate == null || Number(account.interest_rate) <= 0) && bal(account.id) < 0 && (
+                <DetailSection title="Faiz">
+                    <p style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink-3)' }}>
+                        Faiz oranı girilmemiş.{' '}
+                        <button onClick={onEdit} className="hover:underline" style={{ color: 'var(--accent)', fontWeight: 500 }}>Faiz oranını gir</button>
+                        {' '}→ dönem sonunda işleyen faizi hesaplayıp onayına sunayım.
+                    </p>
+                </DetailSection>
+            )}
 
             {/* Yatırım kırılımı */}
             {selected.kind === 'investment' && inv && (

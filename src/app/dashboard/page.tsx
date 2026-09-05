@@ -5,6 +5,7 @@ import Link from "next/link"
 import { supabase, ensureHouseholdExists } from "@/lib/supabase"
 import { Loader2, ShieldCheck, Target, ArrowUpRight, ShoppingBag } from "lucide-react"
 import { buildPurchasePlan } from "@/lib/purchase-plan"
+import { computePendingInterest, computeInterest } from "@/lib/interest"
 import { computePurchasePlanContext } from "@/lib/purchase-plan-data"
 import { deriveAccountBalances, today } from "@/lib/balance"
 import { buildUpcoming, monthName, monthLocative, type UpcomingResult, type UpcomingItem } from "@/lib/upcoming"
@@ -274,6 +275,50 @@ export default function DashboardPage() {
         return { name: next.name, month: next.recommendedMonth! }
     }, [projection, upcoming, transactions, goals, purchasePlans, currentMonthKey, categories])
 
+    // Dönem sonu faiz onayı — türetilmiş bakiye + hesap oranından (interest.ts).
+    const pendingInterest = useMemo(() => computePendingInterest({
+        accounts: (accounts as any[]).map(a => ({
+            id: a.id, name: a.name, type: a.type,
+            balance: balances.get(a.id) ?? a.balance, interest_rate: a.interest_rate, cut_date: a.cut_date,
+        })),
+        answeredFingerprints: dismissedFaiz,
+        today: today(),
+    }), [accounts, balances, dismissedFaiz])
+
+    // Dashboard faiz bloğu — ödenen faiz (source_type='faiz') + en kötü asgari senaryo.
+    const faizData = useMemo(() => {
+        const faizTx = (transactions as any[]).filter(t => t.source_type === 'faiz')
+        const mapped = (accounts as any[]).map(a => ({
+            id: a.id, name: a.name, type: a.type,
+            balance: balances.get(a.id) ?? a.balance, interest_rate: a.interest_rate, credit_limit: a.credit_limit,
+        }))
+        const summary = computeInterest({ accounts: mapped, transactions: faizTx, today: today(), minPaymentPct: 20 })
+        if (summary.paidThisYear <= 0) return null
+
+        const cm = today().slice(0, 7)
+        const pmD = new Date(Number(cm.slice(0, 4)), Number(cm.slice(5, 7)) - 2, 1)
+        const lm = `${pmD.getFullYear()}-${String(pmD.getMonth() + 1).padStart(2, '0')}`
+        let lastMonth = 0
+        for (const t of faizTx) if (t.cash_date && t.cash_date.slice(0, 7) === lm) lastMonth += Math.abs(Number(t.amount))
+
+        const byAccount = summary.paidByAccount.filter(p => p.paidThisYear > 0).sort((a, b) => b.paidThisYear - a.paidThisYear)
+
+        // En kötü durum: en borçlu KART (asgari ödeme kart kavramı), kendi limit-tabanlı oranıyla.
+        const worstAcc = mapped
+            .filter(a => a.type === 'credit_card' && a.interest_rate && Math.max(0, -Number(a.balance)) > 0)
+            .sort((a, b) => Math.max(0, -Number(b.balance)) - Math.max(0, -Number(a.balance)))[0]
+        let worst: { name: string; scenario: { months: number | null; totalInterest: number | null } } | null = null
+        if (worstAcc) {
+            const limit = Number(worstAcc.credit_limit || 0)
+            const minPct = limit > 0 && limit <= 25000 ? 20 : 40
+            const w = computeInterest({ accounts: [worstAcc], transactions: [], today: today(), minPaymentPct: minPct })
+            const sc = w.paidByAccount[0]?.minimumPaymentScenario
+            if (sc) worst = { name: worstAcc.name, scenario: sc }
+        }
+
+        return { paidThisYear: summary.paidThisYear, thisMonth: summary.paidThisMonth, lastMonth: Math.round(lastMonth * 100) / 100, byAccount, worst }
+    }, [transactions, accounts, balances])
+
     // Eyleme bağlı öneri: bir taksit bitiyor VE aktif hedef varsa.
     const reliefSuggestion = useMemo(() => {
         const relief = upcoming?.relievingMonths?.[0]
@@ -418,9 +463,10 @@ export default function DashboardPage() {
                     {/* SOL KOLON */}
                     <div className="contents lg:flex lg:min-w-0 lg:flex-1 lg:flex-col lg:gap-[var(--s3)]">
                         <div className="order-1 lg:order-none"><SpendingCard totals={budgetTotals} flow={flowCurrent} series={spendingSeries} /></div>
-                        {(insights.length > 0 || reliefSuggestion) && (
+                        {(insights.length > 0 || reliefSuggestion || pendingInterest.length > 0) && (
                             <div className="order-3 lg:order-none">
-                                <InsightsCard insights={insights} suggestion={reliefSuggestion} onRedirect={setReliefModal} />
+                                <InsightsCard insights={insights} suggestion={reliefSuggestion} onRedirect={setReliefModal}
+                                    interestPending={pendingInterest} onOpenInterest={() => setInterestModalOpen(true)} />
                             </div>
                         )}
                         <div className="order-8 lg:order-none"><RecentCard rows={recent} accountById={accountById} /></div>
@@ -430,6 +476,7 @@ export default function DashboardPage() {
                     <div className="contents lg:flex lg:min-w-0 lg:flex-1 lg:flex-col lg:gap-[var(--s3)]">
                         <div className="order-6 lg:order-none"><NetWorthSummary /></div>
                         <div className="order-2 lg:order-none"><BudgetCard nodes={budgetTree} /></div>
+                        {faizData && <div className="order-4 lg:order-none"><FaizCard data={faizData} /></div>}
                         {next14.length > 0 && (
                             <div className="order-4 lg:order-none"><Next14Card items={next14} /></div>
                         )}
@@ -459,6 +506,16 @@ export default function DashboardPage() {
                     goals={goals}
                     onClose={() => setReliefModal(null)}
                     onDone={() => { setReliefModal(null); fetchData() }}
+                />
+            )}
+
+            {interestModalOpen && hhIdState && (
+                <FaizApprovalModal
+                    pending={pendingInterest}
+                    accounts={accounts}
+                    hhId={hhIdState}
+                    onClose={() => setInterestModalOpen(false)}
+                    onDone={() => { setInterestModalOpen(false); fetchData() }}
                 />
             )}
         </div>
@@ -665,6 +722,52 @@ function NetCard({ flow, prevNet }: { flow: FlowPeriod | null; prevNet: number |
 }
 
 /** SAĞ 3 — Önümüzdeki 14 gün. Yaklaşan'ın ilk 14 günü, en fazla 5 satır. */
+/** Faiz kartı — bu yıl ödenen faiz, aylık delta, hesap kırılımı, en kötü asgari senaryo. */
+function FaizCard({ data }: { data: {
+    paidThisYear: number; thisMonth: number; lastMonth: number
+    byAccount: { accountId: string; name: string | null; paidThisYear: number }[]
+    worst: { name: string; scenario: { months: number | null; totalInterest: number | null } } | null
+} }) {
+    const delta = data.thisMonth - data.lastMonth // artış = daha çok faiz = kötü
+    return (
+        <Card className="px-[22px] py-[var(--s4)]">
+            <CardHead title="Faiz" href="/varlik" link="Tümü" />
+            <div className="tnum" style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink)' }}>{formatTL(data.paidThisYear)}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>bu yıl ödenen faiz</div>
+            <div className="mt-[var(--s2)] flex items-center gap-[var(--s2)]">
+                <span className="tnum" style={{ fontSize: 13, color: 'var(--ink-2)' }}>bu ay {formatTL(data.thisMonth)}</span>
+                <DeltaChip value={-delta} directionValue={delta} context="geçen aya göre" />
+            </div>
+
+            {data.byAccount.length > 0 && (
+                <ul className="mt-[var(--s4)] flex flex-col gap-[var(--s2)]">
+                    {data.byAccount.map(p => (
+                        <li key={p.accountId}>
+                            <Link href={`/varlik?hesap=${p.accountId}`} className="flex items-center justify-between transition-opacity hover:opacity-80">
+                                <span className="truncate" style={{ fontSize: 13.5, color: 'var(--ink-2)' }}>{p.name ?? 'Hesap'}</span>
+                                <span className="tnum shrink-0" style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ink)' }}>{formatTL(p.paidThisYear)}</span>
+                            </Link>
+                        </li>
+                    ))}
+                </ul>
+            )}
+
+            {data.worst && (data.worst.scenario.months == null ? (
+                <div className="mt-[var(--s4)] p-[var(--s3)]" style={{ background: 'color-mix(in srgb, var(--flow-out) 12%, transparent)', borderRadius: 'var(--r-button)', border: '1px solid color-mix(in srgb, var(--flow-out) 30%, transparent)' }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.5, color: 'var(--flow-out)' }}>
+                        Asgari ödeme {data.worst.name}&apos;in faizini karşılamıyor — borç asgariyle ödenmez, her ay büyür.
+                    </p>
+                </div>
+            ) : (
+                <p className="mt-[var(--s4)] pt-[var(--s3)]" style={{ borderTop: '1px solid var(--border)', fontSize: 13, lineHeight: 1.5, color: 'var(--ink-2)' }}>
+                    <b style={{ color: 'var(--ink)' }}>{data.worst.name}</b>&apos;ta asgari ödersen borç <b className="tnum">{data.worst.scenario.months} ayda</b> kapanır,{' '}
+                    <b className="tnum" style={{ color: 'var(--flow-out)' }}>{formatTL(data.worst.scenario.totalInterest ?? 0)}</b> faiz ödersin.
+                </p>
+            ))}
+        </Card>
+    )
+}
+
 function Next14Card({ items }: { items: UpcomingItem[] }) {
     return (
         <Card className="p-[22px]">
@@ -856,17 +959,29 @@ function BudgetCard({ nodes }: { nodes: NamedBudgetNode[] }) {
 
 /** Blok 3 — Yorumlar + eyleme bağlı öneri. Öneri linki taksit→hedef akışını açar. */
 function InsightsCard({
-    insights, suggestion, onRedirect,
+    insights, suggestion, onRedirect, interestPending = [], onOpenInterest,
 }: {
     insights: Insight[]
     suggestion: { relief: { month: string; monthlyRelief: number }; goalName: string } | null
     onRedirect: (relief: { month: string; monthlyRelief: number }) => void
+    interestPending?: { accountId: string; name: string; amount: number }[]
+    onOpenInterest?: () => void
 }) {
-    if (insights.length === 0 && !suggestion) return null
+    if (insights.length === 0 && !suggestion && interestPending.length === 0) return null
     return (
         <Card className="px-[22px] py-[var(--s4)]">
             <CardHead title="Yorumlar" />
             <ul className="flex flex-col gap-[var(--s3)]">
+                {/* Dönem sonu faiz onayı — sessiz satır; tıklanınca onay akışı açılır. */}
+                {interestPending.map(p => (
+                    <li key={p.accountId} className="flex items-start gap-[var(--s3)]">
+                        <span className="mt-[7px] h-[5px] w-[5px] shrink-0 rounded-full" style={{ background: 'var(--budget-near)' }} aria-hidden />
+                        <span style={{ fontSize: 14.5, lineHeight: 1.45, color: 'var(--ink-2)' }}>
+                            <b style={{ color: 'var(--ink)' }}>{p.name}</b>&apos;ta <span className="tnum">{formatTL(p.amount)}</span> faiz işlemiş olabilir —{' '}
+                            <button type="button" onClick={onOpenInterest} style={{ color: 'var(--accent)', fontWeight: 500 }} className="underline-offset-2 hover:underline">onayla</button>
+                        </span>
+                    </li>
+                ))}
                 {insights.map((insight, i) => (
                     <li key={i} className="flex items-start gap-[var(--s3)]">
                         <span className="mt-[7px] h-[5px] w-[5px] shrink-0 rounded-full" style={{ background: i === 0 ? 'var(--ink)' : 'var(--ink-4)' }} aria-hidden />
@@ -892,6 +1007,91 @@ function InsightsCard({
                 )}
             </ul>
         </Card>
+    )
+}
+
+/** Dönem sonu faiz onayı. Kaydet → source_type='faiz' hareketi + bakiye + dönem
+ *  işareti; Tutarı düzelt → gerçek tutar; Faiz işlemedi → yalnız işaret (bir daha
+ *  sorulmaz). Faiz HESAPLANIR (interest.ts), aranmaz. */
+function FaizApprovalModal({ pending, accounts, hhId, onClose, onDone }: {
+    pending: { accountId: string; name: string; type: string; periodEnd: string; debt: number; monthlyRatePct: number; amount: number; fingerprint: string }[]
+    accounts: any[]
+    hhId: string
+    onClose: () => void
+    onDone: () => void
+}) {
+    const [busy, setBusy] = useState<string | null>(null)
+    const [editing, setEditing] = useState<string | null>(null)
+    const [editAmount, setEditAmount] = useState<string>('')
+    const [done, setDone] = useState<Set<string>>(new Set())
+
+    const remaining = pending.filter(p => !done.has(p.fingerprint))
+    useEffect(() => { if (pending.length > 0 && remaining.length === 0) onDone() }, [remaining.length])
+
+    const mark = async (p: typeof pending[number]) =>
+        supabase.from('dismissed_recurring').upsert({ household_id: hhId, fingerprint: p.fingerprint }, { onConflict: 'household_id,fingerprint' })
+
+    const save = async (p: typeof pending[number], amount: number) => {
+        if (!amount || amount <= 0) return
+        setBusy(p.accountId)
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            await supabase.from('transactions').insert({
+                household_id: hhId, account_id: p.accountId, category_id: null, user_id: user?.id ?? null,
+                amount, type: 'expense',
+                transaction_date: new Date(p.periodEnd + 'T00:00:00').toISOString(),
+                cash_date: p.periodEnd, description: 'Faiz', source_type: 'faiz',
+            })
+            const acc = accounts.find(a => a.id === p.accountId)
+            if (acc) await supabase.from('accounts').update({ balance: Number(acc.balance) - amount }).eq('id', p.accountId)
+            await mark(p)
+            setEditing(null); setDone(s => new Set(s).add(p.fingerprint))
+        } catch (e) { console.error('Faiz kaydedilemedi:', e) } finally { setBusy(null) }
+    }
+
+    const skip = async (p: typeof pending[number]) => {
+        setBusy(p.accountId)
+        try { await mark(p); setDone(s => new Set(s).add(p.fingerprint)) }
+        catch (e) { console.error('İşaretlenemedi:', e) } finally { setBusy(null) }
+    }
+
+    const btn = { borderRadius: 'var(--r-button)', fontSize: 13, fontWeight: 600 } as const
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
+            <div className="w-full max-w-md rounded-[var(--r-card)] p-[var(--s5)]" style={{ background: 'var(--surface)', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+                <div className="mb-[var(--s4)] flex items-center justify-between">
+                    <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>Dönem sonu faizi</span>
+                    <button onClick={onClose} aria-label="Kapat" style={{ color: 'var(--ink-3)' }}>✕</button>
+                </div>
+                <div className="space-y-[var(--s4)]">
+                    {remaining.map(p => (
+                        <div key={p.fingerprint} className="p-[var(--s4)]" style={{ background: 'var(--surface-2)', borderRadius: 'var(--r-card)' }}>
+                            <div className="tnum" style={{ fontSize: 13.5, color: 'var(--ink-3)' }}>
+                                <b style={{ color: 'var(--ink)' }}>{p.name}</b> · {formatTL(p.debt)} borç · %{p.monthlyRatePct} aylık faiz
+                            </div>
+                            <p className="mt-[var(--s2)]" style={{ fontSize: 14, lineHeight: 1.45, color: 'var(--ink)' }}>
+                                Bu dönem <b className="tnum">{formatTL(p.amount)}</b> faiz işlemiş olmalı. Kaydedeyim mi?
+                            </p>
+                            {editing === p.accountId ? (
+                                <div className="mt-[var(--s3)] flex items-center gap-[var(--s2)]">
+                                    <input autoFocus type="number" value={editAmount} onChange={e => setEditAmount(e.target.value)}
+                                        className="tnum w-full px-[var(--s3)] py-[var(--s2)] outline-none" style={{ fontSize: 14, background: 'var(--bg)', borderRadius: 'var(--r-button)', color: 'var(--ink)', border: '1px solid var(--border)' }} />
+                                    <button disabled={busy === p.accountId} onClick={() => save(p, parseFloat(editAmount) || 0)} className="shrink-0 px-[var(--s3)] py-[var(--s2)]" style={{ ...btn, background: 'var(--accent)', color: '#fff' }}>Kaydet</button>
+                                    <button onClick={() => setEditing(null)} className="shrink-0 px-[var(--s2)] py-[var(--s2)]" style={{ ...btn, color: 'var(--ink-3)' }}>Vazgeç</button>
+                                </div>
+                            ) : (
+                                <div className="mt-[var(--s3)] flex flex-wrap items-center gap-[var(--s2)]">
+                                    <button disabled={busy === p.accountId} onClick={() => save(p, p.amount)} className="px-[var(--s3)] py-[6px]" style={{ ...btn, background: 'var(--accent)', color: '#fff' }}>Kaydet</button>
+                                    <button onClick={() => { setEditing(p.accountId); setEditAmount(String(p.amount)) }} className="px-[var(--s3)] py-[6px]" style={{ ...btn, background: 'var(--surface)', color: 'var(--ink-2)' }}>Tutarı düzelt</button>
+                                    <button disabled={busy === p.accountId} onClick={() => skip(p)} className="ml-auto px-[var(--s3)] py-[6px]" style={{ ...btn, color: 'var(--ink-3)', fontWeight: 500 }}>Faiz işlemedi</button>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
     )
 }
 

@@ -111,8 +111,10 @@ export type ProjectionResult = {
 }
 
 const HORIZON = 3
-/** Nakit görünümüne yalnızca likit hesaplar girer; kredi kartı borcu girmez. */
-const LIQUID_TYPES = ['bank', 'cash']
+/** Nakit görünümüne yalnızca likit hesaplar girer; kredi kartı borcu girmez.
+ *  Esnek hesap (KMH) banka-benzeri: bakiyesi (pozitif ya da negatif) nakit
+ *  trajektörisine girer — negatif bakiyeli bir banka hesabıyla aynı işlenir. */
+const LIQUID_TYPES = ['bank', 'cash', 'esnek_hesap']
 
 function toNumber(value: number | string | null | undefined): number {
     const n = typeof value === 'string' ? parseFloat(value) : value
