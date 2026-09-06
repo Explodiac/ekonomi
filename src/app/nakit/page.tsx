@@ -34,7 +34,7 @@ export default function NakitPage() {
                 const [accRes, txRes, subRes, instRes, contractRes, goalRes] = await Promise.all([
                     supabase.from('accounts').select('id, type, opening_balance, balance').eq('household_id', hhId),
                     supabase.from('transactions').select('id, account_id, category_id, amount, type, cash_date, description, source_type, source_id, transfer_direction, categories(name)').eq('household_id', hhId),
-                    supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status').eq('household_id', hhId),
+                    supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status, end_date').eq('household_id', hhId),
                     supabase.from('installments').select('id, description, kind, installment_payments(id, payment_date, amount)').eq('household_id', hhId),
                     supabase.from('contracts').select('id, name, contract_payments(id, amount, expected_date, status)').eq('household_id', hhId),
                     supabase.from('goals').select('name, monthly_alloc, status').eq('household_id', hhId),

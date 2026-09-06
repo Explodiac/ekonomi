@@ -20,7 +20,7 @@
  * hesabını bozar. Sözleşme gelirleri projection.ts'te işlenir.
  */
 
-export type UpcomingKind = 'abonelik' | 'kart_taksidi' | 'kredi'
+export type UpcomingKind = 'abonelik' | 'kart_taksidi' | 'kredi' | 'elden'
 
 export type UpcomingItem = {
     date: string
@@ -80,6 +80,8 @@ export type UpcomingSubscription = {
     frequency: string // 'monthly' | 'yearly' | 'weekly'
     next_payment_date: string
     status?: string | null
+    /** Süreli abonelik bitiş tarihi ('YYYY-MM-DD'). Boşsa süresiz. */
+    end_date?: string | null
 }
 
 export type UpcomingInstallment = {
@@ -194,7 +196,7 @@ export function buildUpcoming(
         if (tx.source_type !== 'installment' || !tx.source_id) continue
 
         const inst = paymentToInstallment.get(tx.source_id)
-        const kind: UpcomingKind = inst?.kind === 'kredi' ? 'kredi' : 'kart_taksidi'
+        const kind: UpcomingKind = inst?.kind === 'kredi' ? 'kredi' : inst?.kind === 'elden' ? 'elden' : 'kart_taksidi'
 
         if (beyondWindow(tx.cash_date)) {
             truncated = true
@@ -227,6 +229,8 @@ export function buildUpcoming(
         for (let n = 0, emitted = 0; n < 400 && emitted < 60; n++) {
             const date = occurrence(anchor, sub.frequency, n)
             if (date < from) continue
+            // Süreli abonelik: bitiş tarihinden sonra kalem üretilmez.
+            if (sub.end_date && date > sub.end_date) break
             if (beyondWindow(date)) { truncated = true; break }
             if (!inWindow(date)) break
 
@@ -558,7 +562,7 @@ function findRelievingMonths(
         result.push({
             month: reliefMonth,
             label: inst.description || 'Taksit',
-            kind: inst.kind === 'kredi' ? 'kredi' : 'kart_taksidi',
+            kind: inst.kind === 'kredi' ? 'kredi' : inst.kind === 'elden' ? 'elden' : 'kart_taksidi',
             monthlyRelief: round2(toNumber(lastPayment.amount)),
         })
     }

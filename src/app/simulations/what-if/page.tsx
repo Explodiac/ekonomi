@@ -32,7 +32,7 @@ export default function WhatIfPage() {
                     supabase.from('transactions')
                         .select('id, account_id, category_id, amount, type, cash_date, description, source_type, source_id, transfer_direction, categories(name)')
                         .eq('household_id', hhId),
-                    supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status').eq('household_id', hhId),
+                    supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status, end_date').eq('household_id', hhId),
                     supabase.from('installments').select('id, description, kind, installment_payments(id, payment_date, amount)').eq('household_id', hhId),
                     supabase.from('categories').select('id, name').eq('household_id', hhId).eq('type', 'expense'),
                     supabase.from('goals').select('name, monthly_alloc, status').eq('household_id', hhId),

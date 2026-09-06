@@ -19,7 +19,7 @@ function formatTL(amount: number): string {
 const TR_MON = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık']
 const TR_MON_LETTER = ['O', 'Ş', 'M', 'N', 'M', 'H', 'T', 'A', 'E', 'E', 'K', 'A']
 const FREQ_LABEL: Record<string, string> = { monthly: 'Her ay', yearly: 'Her yıl', weekly: 'Her hafta' }
-const KIND_LABEL: Record<UpcomingKind, string> = { abonelik: 'Aylık', kart_taksidi: 'Taksit', kredi: 'Kredi' }
+const KIND_LABEL: Record<UpcomingKind, string> = { abonelik: 'Aylık', kart_taksidi: 'Taksit', kredi: 'Kredi', elden: 'Elden' }
 
 function todayISO() { return new Date().toISOString().slice(0, 10) }
 function longDate(iso: string) { const [y, m, d] = iso.split('-').map(Number); return `${d} ${TR_MON[m - 1]} ${y}` }
@@ -59,7 +59,7 @@ export default function YaklasanPage() {
             if (!hhId) return
             const [txRes, subRes, instRes, catRes, accRes] = await Promise.all([
                 supabase.from('transactions').select('id, amount, type, cash_date, description, category_id, account_id, source_type, source_id, transfer_direction').eq('household_id', hhId),
-                supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status, category_id').eq('household_id', hhId),
+                supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status, category_id, end_date').eq('household_id', hhId),
                 supabase.from('installments').select('id, description, kind, category_id, installment_payments(id, payment_date, amount)').eq('household_id', hhId),
                 supabase.from('categories').select('id, name').eq('household_id', hhId),
                 supabase.from('accounts').select('id, name').eq('household_id', hhId),

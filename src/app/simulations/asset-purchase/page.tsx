@@ -52,7 +52,7 @@ export default function AssetPurchasePage() {
                 supabase.from('transactions')
                     .select('id, account_id, category_id, amount, type, cash_date, description, source_type, spend_nature, source_id, transfer_direction, categories(name)')
                     .eq('household_id', id),
-                supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status').eq('household_id', id),
+                supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status, end_date').eq('household_id', id),
                 supabase.from('installments').select('id, description, kind, installment_payments(id, payment_date, amount)').eq('household_id', id),
                 supabase.from('goals').select('id, name, target_amount, saved_tl, monthly_alloc, status').eq('household_id', id),
                 supabase.from('categories').select('id, type, is_base_income').eq('household_id', id),

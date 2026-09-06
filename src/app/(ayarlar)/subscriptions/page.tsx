@@ -24,6 +24,7 @@ type Subscription = {
     amount: number;
     frequency: string;
     next_payment_date: string;
+    end_date?: string | null;
     status: string;
     category_id?: string;
 }
@@ -57,6 +58,7 @@ export default function SubscriptionsPage() {
     const [categoryId, setCategoryId] = useState('')
     const [frequency, setFrequency] = useState('monthly')
     const [startDate, setStartDate] = useState('')
+    const [endDate, setEndDate] = useState('') // süreli abonelik bitişi; boş = süresiz
     const [isActionLoading, setIsActionLoading] = useState(false)
 
     // Payment states
@@ -125,6 +127,7 @@ export default function SubscriptionsPage() {
                         category_id: categoryId || null,
                         frequency,
                         next_payment_date: startDate,
+                        end_date: endDate || null,
                     })
                     .eq('id', editingSubId)
                 if (error) throw error
@@ -136,6 +139,7 @@ export default function SubscriptionsPage() {
                     category_id: categoryId || null,
                     frequency,
                     next_payment_date: startDate,
+                    end_date: endDate || null,
                     status: 'active'
                 })
                 if (error) throw error
@@ -158,6 +162,7 @@ export default function SubscriptionsPage() {
         setCategoryId(sub.category_id || '')
         setFrequency(sub.frequency)
         setStartDate(sub.next_payment_date)
+        setEndDate((sub as any).end_date || '')
         setIsModalOpen(true)
     }
 
@@ -168,6 +173,7 @@ export default function SubscriptionsPage() {
         setCategoryId('')
         setFrequency('monthly')
         setStartDate('')
+        setEndDate('')
     }
 
     const handleConfirmPay = async () => {
@@ -275,9 +281,9 @@ export default function SubscriptionsPage() {
             {/* Başlık + özet + ekle */}
             <div className="flex items-center justify-between gap-[var(--s3)]">
                 <div className="min-w-0">
-                    <h1 style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink)' }}>Abonelikler</h1>
+                    <h1 style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink)' }}>Abonelikler ve düzenli ödemeler</h1>
                     <p className="tnum" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                        Aylık düzenli taahhüt {formatTLsub(totalMonthly)}
+                        Aylık düzenli taahhüt {formatTLsub(totalMonthly)} · süresiz ya da uzun süreli (Netflix, kira). Belirli sayıda taksitle biten için “Taksitli ödeme”yi kullan.
                     </p>
                 </div>
                 <PrimaryButton onClick={() => { resetForm(); setIsModalOpen(true); }}>
@@ -314,6 +320,7 @@ export default function SubscriptionsPage() {
                                             <div className="truncate" style={{ fontSize: 14.5, color: 'var(--ink)' }}>{sub.name}</div>
                                             <div className="tnum" style={{ fontSize: 12, color: overdue ? 'var(--flow-out)' : 'var(--ink-3)' }}>
                                                 {FREQ_LABEL[sub.frequency] || sub.frequency} · {overdue ? 'gecikmiş' : `sonraki ${d.getDate()} ${TR_MONTHS_SUB[d.getMonth()]}`}
+                                                {sub.end_date && (() => { const e = new Date(sub.end_date); return <> · {TR_MONTHS_SUB[e.getMonth()]} {e.getFullYear()}&apos;de bitiyor</> })()}
                                             </div>
                                         </div>
                                         <div className="tnum shrink-0 text-right" style={{ fontSize: 14.5, color: 'var(--ink)' }}>{formatTLsub(sub.amount)}</div>
@@ -384,6 +391,11 @@ export default function SubscriptionsPage() {
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Sonraki Ödeme Tarihi</label>
                                 <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Bitiş Tarihi <span className="text-xs text-muted-foreground">(opsiyonel — süreli abonelik)</span></label>
+                                <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                                <p className="text-[11px] text-muted-foreground italic">Süresiz ya da uzun süreli tekrarlayan ödeme (Netflix, kira). Boş bırak = süresiz. Belirli sayıda taksit için “Taksitli ödeme”.</p>
                             </div>
                             <div className="pt-4 flex justify-end gap-2 border-t">
                                 <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>İptal</Button>

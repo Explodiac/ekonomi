@@ -45,7 +45,11 @@ export type InsightsInput = {
     accounts: InsightAccount[]
     /** Hesaplanmış bakiyeler (lib/balance.ts). Kart borcu negatif değerdir. */
     balances?: Map<string, number>
+    /** Abonelikler — süreli olanların bitişini önceden uyarmak için. */
+    subscriptions?: InsightSubscription[]
 }
+
+export type InsightSubscription = { name: string; end_date?: string | null; status?: string | null }
 
 const MAX_INSIGHTS = 3
 
@@ -303,6 +307,25 @@ export function ruleInterestIncrease(
     return null
 }
 
+// ---------------------------------------------------------------------------
+// Kural: süreli abonelik bitişe 1 ay kala — önceden haber ver.
+// ---------------------------------------------------------------------------
+
+export function ruleSubscriptionEnding(subscriptions: InsightSubscription[], today: string): Insight | null {
+    const t = new Date(today + 'T00:00:00')
+    const soon = new Date(t.getFullYear(), t.getMonth() + 1, t.getDate())
+    const p = (n: number) => String(n).padStart(2, '0')
+    const soonStr = `${soon.getFullYear()}-${p(soon.getMonth() + 1)}-${p(soon.getDate())}`
+    for (const s of subscriptions) {
+        if (s.status && s.status !== 'active') continue
+        if (!s.end_date) continue
+        if (s.end_date >= today && s.end_date <= soonStr) {
+            return { text: `${s.name} aboneliğin gelecek ay bitiyor.`, severity: 'notr', priority: 55 }
+        }
+    }
+    return null
+}
+
 export function buildInsights(
     input: InsightsInput,
     options: { currentMonth?: string; cardUsageThreshold?: number } = {}
@@ -315,6 +338,7 @@ export function buildInsights(
     const candidates = [
         ruleNegativeBalance(input.projection),
         ruleInterestIncrease(input.transactions, currentMonth),
+        ruleSubscriptionEnding(input.subscriptions ?? [], `${currentMonth}-${String(now.getDate()).padStart(2, '0')}`),
         ruleHeaviestMonth(input.upcoming),
         ruleCardLoadJump(input.transactions, input.accounts, currentMonth),
         ruleCategoryGrowth(input.transactions, currentMonth),

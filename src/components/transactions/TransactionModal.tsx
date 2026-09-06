@@ -38,6 +38,8 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
 
     const [isInstallment, setIsInstallment] = useState(false)
     const [installmentCount, setInstallmentCount] = useState("3")
+    // Taksitli ödemenin türü: kredi kartı (account_id=kart) ya da elden (source_account_id=banka).
+    const [installmentKind, setInstallmentKind] = useState<'kart_taksidi' | 'elden'>('kart_taksidi')
     // Taksit ön uyarısı için mevcut yükümlülük tablosu (previewInstallment'a beslenir).
     const [upcomingBase, setUpcomingBase] = useState<UpcomingInput | null>(null)
 
@@ -64,6 +66,7 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                 setToAccount("")
                 setType(initialType)
                 setIsInstallment(!!initialInstallment && initialType === 'expense')
+                setInstallmentKind('kart_taksidi')
             }
         }
     }, [isOpen, initialType, initialData, initialInstallment])
@@ -280,7 +283,10 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                     description: description,
                     total_amount: numAmount,
                     installments_count: numInstallmentCount,
-                    start_date: date
+                    start_date: date,
+                    kind: installmentKind,
+                    // Elden: ödeme kaynağı zorunlu (banka hesabı). Kartta account_id kartın kendisi.
+                    source_account_id: installmentKind === 'elden' ? selectedAccount : null,
                 }).select().single()
 
                 if (instError) throw instError
@@ -411,7 +417,7 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                 <div className="flex justify-between items-center p-6 border-b">
                     <div className="flex flex-col">
                         <h2 className="text-xl font-bold">
-                            {initialData ? 'İşlemi Düzenle' : (type === 'income' ? 'Gelir Ekle' : type === 'expense' ? 'Gider Ekle' : 'Transfer Yap')}
+                            {initialData ? 'İşlemi Düzenle' : (isInstallment ? 'Taksitli ödeme' : type === 'income' ? 'Gelir Ekle' : type === 'expense' ? 'Gider Ekle' : 'Transfer Yap')}
                         </h2>
                         {!initialData && (
                             <div className="flex gap-2 mt-2">
@@ -471,7 +477,7 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                     ) : (
                         <>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium">{type === 'transfer' ? 'Kaynak Hesap' : 'Hesap Seçin'}</label>
+                                <label className="text-sm font-medium">{type === 'transfer' ? 'Kaynak Hesap' : isInstallment ? (installmentKind === 'elden' ? 'Ödemenin çıkacağı hesap' : 'Kart') : 'Hesap Seçin'}</label>
                                 <select
                                     required
                                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
@@ -533,7 +539,19 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                             </div>
 
                             {isInstallment && (
-                                <div className="space-y-2 pt-2 border-t border-border/10 animate-in slide-in-from-top-1 duration-300">
+                                <div className="space-y-3 pt-2 border-t border-border/10 animate-in slide-in-from-top-1 duration-300">
+                                    <p className="text-[11px] text-muted-foreground italic">Belirli sayıda taksit, sonra biter — elden alım, birine süreli ödeme (ör. anneme 7 ay). Süresiz düzenli ödeme için Abonelikler.</p>
+                                    <div>
+                                        <label className="text-xs font-bold text-primary uppercase tracking-widest">Ödeme türü</label>
+                                        <div className="flex gap-2 mt-1">
+                                            {([['kart_taksidi', 'Kredi kartı'], ['elden', 'Elden']] as const).map(([val, lbl]) => (
+                                                <button key={val} type="button" onClick={() => setInstallmentKind(val)}
+                                                    className={`flex-1 h-10 rounded-lg text-xs font-bold transition-all ${installmentKind === val ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-background hover:bg-muted border border-border/50'}`}>
+                                                    {lbl}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
                                     <label className="text-xs font-bold text-primary uppercase tracking-widest">Taksit Sayısı</label>
                                     <div className="flex gap-2">
                                         {[2, 3, 4, 6, 9, 12].map(num => (

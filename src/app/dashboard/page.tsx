@@ -100,7 +100,7 @@ export default function DashboardPage() {
                     .select('id, account_id, category_id, amount, type, cash_date, description, source_type, spend_nature, source_id, transfer_direction, categories(name)')
                     .eq('household_id', hhId),
                 supabase.from('subscriptions')
-                    .select('id, name, amount, frequency, next_payment_date, status')
+                    .select('id, name, amount, frequency, next_payment_date, status, end_date')
                     .eq('household_id', hhId),
                 supabase.from('installments')
                     .select('id, description, kind, installment_payments(id, payment_date, amount)')
@@ -183,6 +183,7 @@ export default function DashboardPage() {
                 transactions: rows,
                 accounts: accountList,
                 balances: derived,
+                subscriptions: (subRes.data || []) as any,
             }, { cardUsageThreshold: settings ? settings.cardAlertPct / 100 : undefined }))
         } catch (error) {
             console.error("Dashboard verisi alınamadı:", error)
