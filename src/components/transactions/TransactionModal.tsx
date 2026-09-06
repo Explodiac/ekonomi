@@ -9,6 +9,7 @@ import { suggestCategory } from "@/lib/auto-categorize"
 import { calculateCashDate, resolveCashDate } from "@/lib/cash-date"
 import { previewInstallment, monthLocative, type UpcomingInput } from "@/lib/upcoming"
 import { planTransferEdit } from "@/lib/transfer-edit"
+import { fetchSettings, updateLastAccount } from "@/lib/settings"
 
 type ModalProps = {
     isOpen: boolean
@@ -18,9 +19,11 @@ type ModalProps = {
     initialData?: any
     /** Açılışta taksit modunu açık başlat (yalnız yeni gider kaydında geçerli). */
     initialInstallment?: boolean
+    /** Yeni işlemde kategoriyi ön-seçili aç (kategoriler ekranından "harcama ekle"). */
+    initialCategoryId?: string
 }
 
-export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess, initialData, initialInstallment }: ModalProps) {
+export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess, initialData, initialInstallment, initialCategoryId }: ModalProps) {
     const [type, setType] = useState<'income' | 'expense' | 'transfer'>(initialType)
     const [amount, setAmount] = useState("")
     const [description, setDescription] = useState("")
@@ -62,14 +65,14 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                 setDescription("")
                 setDate(new Date().toISOString().split('T')[0])
                 setSelectedAccount("")
-                setSelectedCategory("")
+                setSelectedCategory(initialCategoryId || "")
                 setToAccount("")
                 setType(initialType)
                 setIsInstallment(!!initialInstallment && initialType === 'expense')
                 setInstallmentKind('kart_taksidi')
             }
         }
-    }, [isOpen, initialType, initialData, initialInstallment])
+    }, [isOpen, initialType, initialData, initialInstallment, initialCategoryId])
 
     const handleDescriptionChange = async (val: string) => {
         setDescription(val)
@@ -116,6 +119,15 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
 
                 if (accData) setAccounts(accData)
                 else setAccounts([])
+
+                // Son kullanılan hesabı varsayılan yap (yalnız yeni işlemde; düzenlemede
+                // işlemin kendi hesabı korunur). Hatırlanan hesap silinmişse dokunma.
+                if (!initialData && accData) {
+                    const s = await fetchSettings(supabase, hhId)
+                    if (s?.lastAccountId && accData.some((a: any) => a.id === s.lastAccountId)) {
+                        setSelectedAccount(s.lastAccountId)
+                    }
+                }
 
                 // Fetch categories
                 const { data: catData } = await supabase
@@ -397,6 +409,12 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
             }
 
             await createNotification(householdId, notificationTitle, notificationMessage, 'info')
+
+            // Son kullanılan hesabı hatırla (yalnız gider; taksitli ödeme dahil).
+            // Sonraki yeni gider/taksit formunda bu hesap varsayılan gelir.
+            if (type === 'expense' && selectedAccount) {
+                await updateLastAccount(supabase, householdId, selectedAccount)
+            }
 
             setAmount("")
             setDescription("")

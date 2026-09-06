@@ -64,7 +64,7 @@ export function AssetSellModal({ isOpen, asset, onClose, onSuccess }: ModalProps
                 .from('accounts')
                 .select('*')
                 .eq('household_id', hhId)
-                .in('type', ['bank', 'cash'])
+                .in('type', ['bank', 'cash', 'esnek_hesap'])
 
             if (data) {
                 setAccounts(data as any)

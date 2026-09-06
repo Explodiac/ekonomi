@@ -45,7 +45,7 @@ export function LoanModal({ isOpen, onClose, onSuccess }: Props) {
                 .from('accounts')
                 .select('id, name, type, cut_date, due_date')
                 .eq('household_id', hhId)
-                .in('type', ['bank', 'cash'])
+                .in('type', ['bank', 'cash', 'esnek_hesap'])
 
             setAccounts(data || [])
             if (data?.length && !sourceAccountId) setSourceAccountId(data[0].id)

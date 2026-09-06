@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { supabase, ensureHouseholdExists } from "@/lib/supabase"
-import { Loader2, Pencil, Check, X } from "lucide-react"
+import { Loader2, Pencil, Check, X, Plus } from "lucide-react"
 import { categoryInk } from "@/components/dashboard/category-tile"
 import { AccountIcon, shortAccount } from "@/components/dashboard/account-icon"
 import { buildCategoryDetail, DETAIL_MONTHS, type CategoryDetail, type CategoryDetailTransaction, type ChildSeries } from "@/lib/category-detail"
 import { fetchSettings } from "@/lib/settings"
 import { KeyMetricsTable } from "@/components/categories/key-metrics"
+import { TransactionModal } from "@/components/transactions/TransactionModal"
 
 const TR_MONTH_SHORT = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara']
 const TR_MONTH_LETTER = ['O', 'Ş', 'M', 'N', 'M', 'H', 'T', 'A', 'E', 'E', 'K', 'A']
@@ -48,6 +49,7 @@ export function CategoryDetailPanel({
     const [accountById, setAccountById] = useState<Map<string, { name: string; type: string }>>(new Map())
     const [hhId, setHhId] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(true)
+    const [addOpen, setAddOpen] = useState(false)
     const currentMonth = todayStr().slice(0, 7)
 
     const load = async () => {
@@ -133,19 +135,29 @@ export function CategoryDetailPanel({
 
     return (
         <div className={`flex flex-col gap-[var(--s3)] ${wrapCls}`} style={wrapStyle}>
-            <TopBlock detail={detail} onSelectCategory={onSelectCategory} onSaveBudget={saveBudget} />
+            <TopBlock detail={detail} onSelectCategory={onSelectCategory} onSaveBudget={saveBudget} onAddExpense={() => setAddOpen(true)} />
             <SpendingChart detail={detail} future={future} onSelectCategory={onSelectCategory} />
             {detail.hasEnoughData && detail.yearly.length > 0 && <KeyMetricsTable yearly={detail.yearly} />}
             <TransactionsCard detail={detail} accountById={accountById} />
+
+            {/* "Bu kategoriye harcama ekle" — kategori ön-seçili gider formu. */}
+            <TransactionModal
+                isOpen={addOpen}
+                type="expense"
+                initialCategoryId={categoryId}
+                onClose={() => setAddOpen(false)}
+                onSuccess={() => { setAddOpen(false); load(); onChanged?.() }}
+            />
         </div>
     )
 }
 
 /** Üst blok: kimlik noktası + ad, sağda bu ay harcanan + kaldı, bütçe düzenle, parent pill'leri. */
-function TopBlock({ detail, onSelectCategory, onSaveBudget }: {
+function TopBlock({ detail, onSelectCategory, onSaveBudget, onAddExpense }: {
     detail: CategoryDetail
     onSelectCategory?: (id: string) => void
     onSaveBudget: (v: number) => void
+    onAddExpense: () => void
 }) {
     const monthName = TR_MONTH_SHORT[new Date().getMonth()]
     const budget = detail.budgetThisMonth
@@ -214,6 +226,15 @@ function TopBlock({ detail, onSelectCategory, onSaveBudget }: {
                     })}
                 </div>
             )}
+
+            {/* Birincil aksiyon: bu kategoriye doğrudan harcama ekle (kategori ön-seçili). */}
+            <button
+                onClick={onAddExpense}
+                className="mt-[var(--s4)] flex w-full items-center justify-center gap-[6px] py-[var(--s3)] transition-opacity hover:opacity-90"
+                style={{ background: 'var(--accent)', borderRadius: 'var(--r-button)', color: '#fff', fontSize: 14, fontWeight: 600 }}
+            >
+                <Plus className="h-4 w-4" /> Bu kategoriye harcama ekle
+            </button>
         </section>
     )
 }

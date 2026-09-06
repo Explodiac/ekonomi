@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { supabase, ensureHouseholdExists, createNotification } from "@/lib/supabase"
+import { fetchSettings, updateLastAccount } from "@/lib/settings"
 import { parseQuickEntry } from "@/lib/nlp-parser"
 import { suggestCategory } from "@/lib/auto-categorize"
 import { calculateCashDate } from "@/lib/cash-date"
@@ -36,6 +37,23 @@ export function QuickEntry({
     const [feedbackCategoryId, setFeedbackCategoryId] = useState<string | null>(null)
     // Giriş anında doğa sorusu (2c-a): şüphede sor, cevabı kategoriye kalıcı yaz.
     const [natureAsk, setNatureAsk] = useState<{ txId: string; categoryId: string; noDefault: boolean } | null>(null)
+    // Son kullanılan hesap (settings'ten) — hesap ipucu yoksa varsayılan bu olur.
+    const [rememberedAccountId, setRememberedAccountId] = useState<string | null>(null)
+
+    useEffect(() => {
+        let alive = true
+        ;(async () => {
+            try {
+                const { data: { user } } = await supabase.auth.getUser()
+                if (!user) return
+                const hhId = await ensureHouseholdExists(user.id)
+                if (!hhId) return
+                const s = await fetchSettings(supabase, hhId)
+                if (alive) setRememberedAccountId(s?.lastAccountId ?? null)
+            } catch { /* hatırlama yoksa eski varsayılana düşer */ }
+        })()
+        return () => { alive = false }
+    }, [])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -65,7 +83,13 @@ export function QuickEntry({
                 if (foundAcc) targetAccountId = foundAcc.id
             }
             if (!targetAccountId) {
-                const defaultAcc = accounts.find(a => ['bank', 'cash'].includes(a.type)) || accounts[0]
+                const remembered = rememberedAccountId ? accounts.find(a => a.id === rememberedAccountId) : null
+                // bank/cash öncelikli varsayılan; yoksa esnek hesap (geçerli ödeme
+                // kaynağı) — kart yanlışlıkla varsayılan olmasın; son çare accounts[0].
+                const defaultAcc = remembered
+                    || accounts.find(a => ['bank', 'cash'].includes(a.type))
+                    || accounts.find(a => a.type === 'esnek_hesap')
+                    || accounts[0]
                 targetAccountId = defaultAcc?.id ?? null
             }
             if (!targetAccountId) {
@@ -123,6 +147,13 @@ export function QuickEntry({
                 `${userName}: "${parsed.description}" işlemi. Tutar: ₺${parsed.amount}`,
                 parsed.type === 'income' ? 'success' : 'transaction'
             )
+
+            // Son kullanılan hesabı hatırla (yalnız gider). Sonraki hızlı girişte
+            // ipucu yoksa bu hesap varsayılan gelir.
+            if (parsed.type === 'expense' && targetAccountId) {
+                setRememberedAccountId(targetAccountId)
+                await updateLastAccount(supabase, hhId, targetAccountId)
+            }
 
             setFeedbackCategoryId(parsed.type === 'expense' ? finalCategoryId : null)
             setValue("")
