@@ -431,8 +431,8 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <div className="bg-card w-full max-w-md rounded-xl shadow-2xl overflow-hidden border">
-                <div className="flex justify-between items-center p-6 border-b">
+            <div className="bg-card w-full max-w-md rounded-xl shadow-2xl overflow-hidden border flex flex-col max-h-[85vh]">
+                <div className="flex justify-between items-center p-6 border-b shrink-0">
                     <div className="flex flex-col">
                         <h2 className="text-xl font-bold">
                             {initialData ? 'İşlemi Düzenle' : (isInstallment ? 'Taksitli ödeme' : type === 'income' ? 'Gelir Ekle' : type === 'expense' ? 'Gider Ekle' : 'Transfer Yap')}
@@ -450,7 +450,9 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+                    {/* Orta alan: içerik uzunsa yalnız burası kayar; başlık ve buton satırı sabit. */}
+                    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-6">
                     <div className="space-y-2">
                         <label className="text-sm font-medium">Tutar (₺)</label>
                         <Input
@@ -606,7 +608,9 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                         </div>
                     )}
 
-                    <div className="pt-4 flex justify-end gap-3">
+                    </div>
+
+                    <div className="shrink-0 flex justify-end gap-3 border-t p-6">
                         <Button type="button" variant="outline" onClick={onClose}>İptal</Button>
                         <Button type="submit" disabled={isLoading || accounts.length === 0} className={type === 'income' ? 'bg-emerald-600 hover:bg-emerald-700' : type === 'transfer' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-destructive hover:bg-destructive/90'}>
                             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Kaydet'}
