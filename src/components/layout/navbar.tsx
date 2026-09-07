@@ -47,7 +47,7 @@ export function Navbar() {
                     <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary shrink-0">
                         <User className="h-4 w-4" />
                     </div>
-                    <span className="hidden text-sm font-medium md:inline">Ömer & Eşi</span>
+                    <span className="hidden text-sm font-medium md:inline">Ömer & Selin</span>
                 </div>
             </div>
           </div>

@@ -23,7 +23,7 @@ export function Segmented<T extends string>({
                         key={o.value}
                         type="button"
                         onClick={() => onChange(o.value)}
-                        className="px-[var(--s4)] py-[var(--s2)] transition-colors"
+                        className="shrink-0 whitespace-nowrap px-[var(--s4)] py-[var(--s2)] transition-colors"
                         style={{
                             fontSize: 13.5,
                             borderRadius: 'var(--r-button)',

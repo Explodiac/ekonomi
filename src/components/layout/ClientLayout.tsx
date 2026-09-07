@@ -28,7 +28,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
                         <Navbar />
                         {/* Sayfa zemini tasarım token'ından (--bg) gelir; ek tint uygulanmaz.
                             Mobilde alt navigasyon barı için ekstra alt boşluk. */}
-                        <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 lg:pb-6">
+                        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pb-24 lg:pb-6">
                             {/* Tüm ekranlar için TEK ortak hizalama container'ı: masaüstünde
                                 ortalanmış tek sütun (Navbar aramasıyla aynı hat), mobilde tam
                                 genişlik. Ekran içerikleri kendi tasarımıyla bunun içine oturur. */}

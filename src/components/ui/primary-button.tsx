@@ -12,7 +12,7 @@ export function PrimaryButton({
 }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
     return (
         <button
-            className={`px-[var(--s5)] py-[var(--s3)] transition-opacity disabled:opacity-40 ${className}`}
+            className={`inline-flex items-center justify-center gap-[6px] whitespace-nowrap px-[var(--s5)] py-[var(--s3)] transition-opacity disabled:opacity-40 ${className}`}
             style={{
                 background: 'var(--accent)',
                 borderRadius: 'var(--r-button)',

@@ -180,9 +180,9 @@ export default function KategorilerPage() {
     return (
         <div>
             <div className="mb-[var(--s4)] flex items-center justify-between gap-[var(--s3)]">
-                <PageHeader title="Kategoriler" subtitle="Harcama ve bütçeler" />
-                <PrimaryButton onClick={() => router.push('/settings')}>
-                    <Plus className="h-4 w-4" /> Kategori ekle
+                <div className="min-w-0"><PageHeader title="Kategoriler" subtitle="Harcama ve bütçeler" /></div>
+                <PrimaryButton onClick={() => router.push('/settings')} className="shrink-0">
+                    <Plus className="h-4 w-4" />Kategori ekle
                 </PrimaryButton>
             </div>
 
