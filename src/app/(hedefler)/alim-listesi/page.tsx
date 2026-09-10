@@ -86,7 +86,7 @@ function AlimListesiInner() {
                 supabase.from('categories').select('id, name, type, color, icon, is_base_income').eq('household_id', id),
                 supabase.from('accounts').select('id, name, type, opening_balance, balance, interest_rate').eq('household_id', id),
                 supabase.from('transactions')
-                    .select('id, account_id, category_id, amount, type, cash_date, description, source_type, spend_nature, source_id, transfer_direction')
+                    .select('id, account_id, category_id, amount, type, transaction_date, cash_date, description, source_type, spend_nature, source_id, transfer_direction')
                     .eq('household_id', id),
                 supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status, end_date').eq('household_id', id),
                 supabase.from('installments').select('id, description, kind, installment_payments(id, payment_date, amount)').eq('household_id', id),

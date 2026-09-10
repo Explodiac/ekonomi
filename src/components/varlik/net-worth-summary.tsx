@@ -58,7 +58,7 @@ export function NetWorthSummary() {
 
                 const [accRes, txRes, instRes, invRes, ratesRes] = await Promise.all([
                     supabase.from('accounts').select('id, type, opening_balance').eq('household_id', hhId),
-                    supabase.from('transactions').select('account_id, amount, type, cash_date, transfer_direction').eq('household_id', hhId),
+                    supabase.from('transactions').select('account_id, amount, type, transaction_date, cash_date, transfer_direction').eq('household_id', hhId),
                     supabase.from('installments').select('kind, installment_payments(payment_date, amount)').eq('household_id', hhId),
                     supabase.from('investments').select('quantity, symbol, average_cost').eq('household_id', hhId),
                     fetch('/api/rates').then(r => r.json()).catch(() => ({ success: false })),

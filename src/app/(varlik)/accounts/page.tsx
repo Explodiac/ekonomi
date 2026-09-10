@@ -64,7 +64,7 @@ export default function AccountsPage() {
             // Türetilmiş bakiye için hesabın tüm geçmişi gerekiyor.
             const { data: txData } = await supabase
                 .from('transactions')
-                .select('account_id, amount, type, cash_date')
+                .select('account_id, amount, type, transaction_date, cash_date, transfer_direction')
                 .eq('household_id', hhId)
 
             if (data) setDerivedBalances(deriveAccountBalances(data, txData || []))

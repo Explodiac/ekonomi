@@ -98,7 +98,7 @@ export default function CreditCardsPage() {
             // gelecek tarihli taksitler bugünün borcuna karışmamalı.
             const { data: allTxForBalance } = await supabase
                 .from('transactions')
-                .select('account_id, amount, type, cash_date')
+                .select('account_id, amount, type, transaction_date, cash_date, transfer_direction')
                 .eq('household_id', hhId)
 
             setDerivedBalances(deriveAccountBalances(accounts, allTxForBalance || []))

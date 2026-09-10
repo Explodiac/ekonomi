@@ -135,7 +135,7 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                 // geri hesaplıyoruz: açılış = girilen − bugüne kadarki hareketlerin etkisi.
                 const { data: accTx } = await supabase
                     .from('transactions')
-                    .select('amount, type, cash_date, transfer_direction')
+                    .select('amount, type, transaction_date, cash_date, transfer_direction')
                     .eq('account_id', account.id)
 
                 const netSoFar = derivedBalance(0, accTx || [])

@@ -179,7 +179,8 @@ function buildPoints(
     else if (range === 'TÜMÜ') {
         let earliest: string | null = null
         for (const t of transactions) {
-            if (t.cash_date && (!earliest || t.cash_date < earliest)) earliest = t.cash_date
+            const d = (t.transaction_date || t.cash_date || '').slice(0, 10)
+            if (d && (!earliest || d < earliest)) earliest = d
         }
         if (!earliest) return { points: [], granularity: 'month' } // veri yok → boş, hata değil
         startMonth = earliest.slice(0, 7)
@@ -208,9 +209,13 @@ function seriesNetWorth(
     installments: NetWorthInstallment[],
     investment: number
 ): NetWorthMonth[] {
+    // Bakiye/borç, hareketin YAPILDIĞI güne göre birikir (transaction_date), paranın
+    // çıkacağı güne göre değil — balance.ts ile aynı kural (kart borcu yapıldığı an).
+    const rd = (t: NetWorthTransaction) => (t.transaction_date || t.cash_date || '').slice(0, 10)
     const sorted = transactions
-        .filter(t => t.cash_date)
-        .sort((a, b) => (a.cash_date as string).localeCompare(b.cash_date as string))
+        .map(t => ({ t, d: rd(t) }))
+        .filter(x => x.d)
+        .sort((a, b) => a.d.localeCompare(b.d))
 
     const bal = new Map<string, number>()
     const typeOf = new Map<string, string>()
@@ -222,8 +227,8 @@ function seriesNetWorth(
     let idx = 0
     const out: NetWorthMonth[] = []
     for (const p of points) {
-        while (idx < sorted.length && (sorted[idx].cash_date as string) <= p.at) {
-            const t = sorted[idx]
+        while (idx < sorted.length && sorted[idx].d <= p.at) {
+            const t = sorted[idx].t
             if (t.account_id && bal.has(t.account_id)) {
                 bal.set(t.account_id, (bal.get(t.account_id) as number) + transactionEffect(t))
             }

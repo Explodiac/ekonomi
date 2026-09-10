@@ -5,7 +5,15 @@
  * yeniden hesaplanmadığı için doğrulanamaz. Buradaki fonksiyonlar bakiyeyi
  * hareketlerden türetir:
  *
- *     gerçekleşen bakiye = opening_balance + Σ(cash_date <= bugün olan hareketler)
+ *     gerçekleşen bakiye = opening_balance + Σ(transaction_date <= bugün olan hareketler)
+ *
+ * TARİH: Bakiye, paranın çıkacağı gün (cash_date) değil, hareketin YAPILDIĞI gün
+ * (transaction_date) esas alınarak türetilir. Kart harcaması borcu yapıldığı an
+ * artırır; cash_date (son ödeme günü) gelecekte olsa bile borç bugün vardır.
+ * cash_date'le süzülünce kart harcamaları bakiyeye hiç girmiyordu (banka
+ * hesaplarında ikisi aynı olduğu için sorun yalnızca kartlarda görünüyordu).
+ * cash_date yalnız nakit-akışı ekranlarında kullanılır (Yaklaşan/Nakit/runway).
+ * transaction_date yoksa cash_date'e düşülür (eski davranışla geriye uyum).
  *
  * Gelecek tarihli hareketler doğal olarak dışarıda kalır — ileri tarihli bir taksit
  * ya da gider bugünün bakiyesini etkilemez, ayrıca bir düzeltme gerekmez.
@@ -20,9 +28,18 @@ export type BalanceTransactionType = 'income' | 'expense' | 'transfer'
 export type BalanceTransaction = {
     amount: number | string
     type: BalanceTransactionType | string
+    /** Hareketin yapıldığı gün — bakiye türetmede esas tarih. */
+    transaction_date?: string | null
+    /** Paranın çıkacağı gün — yalnız nakit-akışı ekranlarında; bakiyede kullanılmaz. */
     cash_date: string
     /** Transferlerde yön: 'out' kaynak hesap, 'in' hedef hesap. Diğer tiplerde boş. */
     transfer_direction?: 'out' | 'in' | string | null
+}
+
+/** Bakiye türetmede esas alınan gün: transaction_date, yoksa cash_date. 'YYYY-MM-DD'. */
+function realizedDate(tx: BalanceTransaction): string {
+    const d = tx.transaction_date || tx.cash_date || ''
+    return d.slice(0, 10)
 }
 
 /** Kuruş hassasiyetinde yuvarlar; kayan nokta birikimini engeller. */
@@ -53,7 +70,8 @@ export function derivedBalance(
     asOf: string = today()
 ): number {
     const total = transactions.reduce((sum, tx) => {
-        if (!tx.cash_date || tx.cash_date > asOf) return sum
+        const d = realizedDate(tx)
+        if (!d || d > asOf) return sum
         return sum + transactionEffect(tx)
     }, toNumber(openingBalance))
 
@@ -143,16 +161,16 @@ export function accountBalanceSeries(
     points: string[]
 ): number[] {
     const sorted = transactions
-        .filter(tx => tx.cash_date)
-        .slice()
-        .sort((a, b) => (a.cash_date < b.cash_date ? -1 : a.cash_date > b.cash_date ? 1 : 0))
+        .map(tx => ({ tx, d: realizedDate(tx) }))
+        .filter(x => x.d)
+        .sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0))
 
     let running = toNumber(openingBalance)
     let ti = 0
     const out: number[] = []
     for (const point of points) {
-        while (ti < sorted.length && sorted[ti].cash_date <= point) {
-            running += transactionEffect(sorted[ti])
+        while (ti < sorted.length && sorted[ti].d <= point) {
+            running += transactionEffect(sorted[ti].tx)
             ti++
         }
         out.push(roundToCents(running))

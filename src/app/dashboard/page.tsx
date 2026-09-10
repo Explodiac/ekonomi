@@ -97,7 +97,7 @@ export default function DashboardPage() {
                     .select('id, name, type, balance, opening_balance, credit_limit, interest_rate, cut_date')
                     .eq('household_id', hhId),
                 supabase.from('transactions')
-                    .select('id, account_id, category_id, amount, type, cash_date, description, source_type, spend_nature, source_id, transfer_direction, categories(name)')
+                    .select('id, account_id, category_id, amount, type, transaction_date, cash_date, description, source_type, spend_nature, source_id, transfer_direction, categories(name)')
                     .eq('household_id', hhId),
                 supabase.from('subscriptions')
                     .select('id, name, amount, frequency, next_payment_date, status, end_date')

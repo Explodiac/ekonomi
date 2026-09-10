@@ -135,16 +135,22 @@ function HareketlerInner() {
         [accounts]
     )
 
+    // Hareketler listesi harcamanın YAPILDIĞI günü (transaction_date) esas alır,
+    // paranın çıkacağı günü (cash_date) DEĞİL. Kart harcamalarının cash_date'i
+    // gelecek aya düştüğü için cash_date'le süzülünce bu ayın listesinde hiç
+    // görünmüyorlardı. (cash_date → Yaklaşan/Nakit/breathing-room/runway/what-if.)
+    const txDay = (t: Tx) => (t.transaction_date || '').slice(0, 10)
+
     const filtered = useMemo(() => {
         const q = query.trim().toLocaleLowerCase('tr')
         const rows = txs.filter(t => {
-            if (!t.cash_date) return false
+            if (!t.transaction_date) return false
             if (typeFilter === 'expense' && t.type !== 'expense') return false
             if (typeFilter === 'income' && t.type !== 'income') return false
             if (catFilter && t.category_id !== catFilter) return false
             if (accFilter && t.account_id !== accFilter) return false
-            if (fromDate && t.cash_date < fromDate) return false
-            if (toDate && t.cash_date > toDate) return false
+            if (fromDate && txDay(t) < fromDate) return false
+            if (toDate && txDay(t) > toDate) return false
             if (q) {
                 const hay = `${t.description ?? ''} ${t.categoryName ?? ''}`.toLocaleLowerCase('tr')
                 if (!hay.includes(q)) return false
@@ -153,10 +159,10 @@ function HareketlerInner() {
         })
         rows.sort((a, b) => {
             switch (sortKey) {
-                case 'tarih-eski': return a.cash_date.localeCompare(b.cash_date)
+                case 'tarih-eski': return txDay(a).localeCompare(txDay(b))
                 case 'tutar-buyuk': return Math.abs(Number(b.amount)) - Math.abs(Number(a.amount))
                 case 'tutar-kucuk': return Math.abs(Number(a.amount)) - Math.abs(Number(b.amount))
-                default: return b.cash_date.localeCompare(a.cash_date)
+                default: return txDay(b).localeCompare(txDay(a))
             }
         })
         return rows
@@ -164,15 +170,15 @@ function HareketlerInner() {
 
     const todayStr = todayISO()
 
-    // Varsayılan yalnız GERÇEKLEŞMİŞ (cash_date <= bugün). "gelecek=1" → planlananlar da.
-    const pastRows = useMemo(() => filtered.filter(t => t.cash_date <= todayStr), [filtered, todayStr])
-    const futureRows = useMemo(() => showFuture ? filtered.filter(t => t.cash_date > todayStr) : [], [filtered, showFuture, todayStr])
+    // Varsayılan yalnız GERÇEKLEŞMİŞ (transaction_date <= bugün). "gelecek=1" → planlananlar da.
+    const pastRows = useMemo(() => filtered.filter(t => txDay(t) <= todayStr), [filtered, todayStr])
+    const futureRows = useMemo(() => showFuture ? filtered.filter(t => txDay(t) > todayStr) : [], [filtered, showFuture, todayStr])
 
     // GÜNLÜK grupla (aylık net toplam yok — akıcı liste). Gerçekleşenlerde sayfalama.
     const groupByDay = (rows: Tx[]) => {
         const map = new Map<string, Tx[]>()
         for (const t of rows) {
-            const key = t.cash_date.slice(0, 10)
+            const key = txDay(t)
             const g = map.get(key) ?? []
             g.push(t)
             map.set(key, g)
