@@ -14,13 +14,14 @@
  * ileriye bakılır; geçmiş kayıtlar hiç üretilmez ki tarih+tutar eşleştirmesi
  * gibi yanlış eşleşme üreten yöntemlere düşülmesin.
  *
- * SÖZLEŞMELER BURAYA GİRMEZ. Bu uygulamada contracts bir gelir kaynağıdır
- * (bkz. "Kontratlar ve Düzenli Gelirler" sayfası; ödeme onayı type='income'
- * yazar). Yükümlülük listesine gelir karıştırmak toplamları ve "en ağır ay"
- * hesabını bozar. Sözleşme gelirleri projection.ts'te işlenir.
+ * SÖZLEŞME GELİRLERİ (kontrat) de takvime dizilir ama GİDERLERDEN AYRI tutulur:
+ * her ay `total` yalnız giderdir (yükümlülük), `incomeTotal` gelirdir, `net`
+ * ikisinin farkıdır. "En ağır ay" ve rahatlama hesapları yalnız gideri kullanır
+ * — gelir karışmaz. Kontrat gelirleri contract_payments (pending) üzerinden
+ * üretilir; source_type='contract' gerçek hareketi olanlar çift sayılmaz.
  */
 
-export type UpcomingKind = 'abonelik' | 'kart_taksidi' | 'kredi' | 'elden'
+export type UpcomingKind = 'abonelik' | 'kart_taksidi' | 'kredi' | 'elden' | 'kontrat'
 
 export type UpcomingItem = {
     date: string
@@ -28,13 +29,20 @@ export type UpcomingItem = {
     amount: number
     kind: UpcomingKind
     sourceId: string
+    /** Gelir mi gider mi — Yaklaşan'da görsel ayrım ve net akış için. */
+    direction: 'income' | 'expense'
     /** transactions'tan mı okundu, yoksa kuraldan mı üretildi */
     isRealTransaction: boolean
 }
 
 export type UpcomingMonth = {
     month: string // '2026-11'
+    /** Ayın gider (yükümlülük) toplamı — "en ağır ay" bunu kullanır. */
     total: number
+    /** Ayın gelir toplamı (sözleşme gelirleri). */
+    incomeTotal: number
+    /** Net akış: incomeTotal − total. */
+    net: number
     items: UpcomingItem[]
     /** 12 ay ortalamasının %30 üstünde mi */
     isHeavy: boolean
@@ -91,10 +99,21 @@ export type UpcomingInstallment = {
     payments: { id: string; payment_date: string; amount: number | string }[]
 }
 
+/** Sözleşme (gelir) ödeme planı kalemi — contract_payments satırı. */
+export type UpcomingContractPayment = {
+    id: string
+    amount: number | string
+    expected_date: string
+    status?: string | null
+    contractName?: string | null
+}
+
 export type UpcomingInput = {
     transactions: UpcomingTransaction[]
     subscriptions: UpcomingSubscription[]
     installments: UpcomingInstallment[]
+    /** Sözleşme gelir ödemeleri (pending). Boş/verilmezse gelir üretilmez. */
+    contractPayments?: UpcomingContractPayment[]
 }
 
 // --- Tarih yardımcıları ---
@@ -210,6 +229,7 @@ export function buildUpcoming(
             amount: round2(Math.abs(toNumber(tx.amount))),
             kind,
             sourceId: tx.source_id,
+            direction: 'expense',
             isRealTransaction: true,
         })
     }
@@ -240,10 +260,33 @@ export function buildUpcoming(
                 amount,
                 kind: 'abonelik',
                 sourceId: sub.id,
+                direction: 'expense',
                 isRealTransaction: false,
             })
             emitted++
         }
+    }
+
+    // 3) Sözleşme gelirleri: pending contract_payments'i takvime diz. Gerçek
+    //    hareketi (source_type='contract') olan kalem çift sayılmaz. Gelir olarak
+    //    işaretlenir; ay giderine karışmaz (yalnız incomeTotal/net'e girer).
+    for (const cp of input.contractPayments ?? []) {
+        if (cp.status && cp.status !== 'pending') continue
+        if (realSourceIds.has(`contract:${cp.id}`)) continue
+        const date = cp.expected_date
+        if (!date || date < from) continue
+        if (beyondWindow(date)) { truncated = true; continue }
+        if (!inWindow(date)) continue
+
+        items.push({
+            date,
+            label: cp.contractName || 'Sözleşme geliri',
+            amount: round2(toNumber(cp.amount)),
+            kind: 'kontrat',
+            sourceId: cp.id,
+            direction: 'income',
+            isRealTransaction: false,
+        })
     }
 
     // --- Ay kovalarına dağıt ---
@@ -258,9 +301,14 @@ export function buildUpcoming(
 
     const months: UpcomingMonth[] = [...buckets.entries()].map(([month, monthItems]) => {
         monthItems.sort((a, b) => a.date.localeCompare(b.date))
+        // total yalnız gider (yükümlülük); gelir ayrı toplanır — "en ağır ay" bozulmaz.
+        const total = round2(monthItems.filter(it => it.direction === 'expense').reduce((s, it) => s + it.amount, 0))
+        const incomeTotal = round2(monthItems.filter(it => it.direction === 'income').reduce((s, it) => s + it.amount, 0))
         return {
             month,
-            total: round2(monthItems.reduce((s, it) => s + it.amount, 0)),
+            total,
+            incomeTotal,
+            net: round2(incomeTotal - total),
             items: monthItems,
             isHeavy: false,
         }

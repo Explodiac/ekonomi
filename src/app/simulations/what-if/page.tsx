@@ -27,7 +27,7 @@ export default function WhatIfPage() {
                 const hhId = await ensureHouseholdExists(user.id)
                 if (!hhId) return
 
-                const [accRes, txRes, subRes, instRes, catRes, goalRes] = await Promise.all([
+                const [accRes, txRes, subRes, instRes, catRes, goalRes, conRes] = await Promise.all([
                     supabase.from('accounts').select('id, type, opening_balance, balance').eq('household_id', hhId),
                     supabase.from('transactions')
                         .select('id, account_id, category_id, amount, type, cash_date, description, source_type, source_id, transfer_direction, categories(name)')
@@ -36,15 +36,20 @@ export default function WhatIfPage() {
                     supabase.from('installments').select('id, description, kind, installment_payments(id, payment_date, amount)').eq('household_id', hhId),
                     supabase.from('categories').select('id, name').eq('household_id', hhId).eq('type', 'expense'),
                     supabase.from('goals').select('name, monthly_alloc, status').eq('household_id', hhId),
+                    supabase.from('contracts').select('id, name, contract_payments(id, amount, expected_date, status)').eq('household_id', hhId),
                 ])
 
                 const transactions = (txRes.data || []).map((t: any) => ({ ...t, categoryName: t.categories?.name ?? null }))
+                const contractPayments = (conRes.data || []).flatMap((c: any) =>
+                    (c.contract_payments || [])
+                        .filter((p: any) => p.status === 'pending')
+                        .map((p: any) => ({ ...p, contract_id: c.id, contractName: c.name })))
                 setInput({
                     accounts: accRes.data || [],
                     transactions,
                     subscriptions: subRes.data || [],
                     installments: (instRes.data || []).map((i: any) => ({ ...i, payments: i.installment_payments || [] })),
-                    contractPayments: [],
+                    contractPayments,
                     goalAllocations: (goalRes.data || []).map((g: any) => ({ name: g.name, monthlyAlloc: g.monthly_alloc, status: g.status })),
                 })
                 setCategories(catRes.data || [])

@@ -19,7 +19,7 @@ function formatTL(amount: number): string {
 const TR_MON = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık']
 const TR_MON_LETTER = ['O', 'Ş', 'M', 'N', 'M', 'H', 'T', 'A', 'E', 'E', 'K', 'A']
 const FREQ_LABEL: Record<string, string> = { monthly: 'Her ay', yearly: 'Her yıl', weekly: 'Her hafta' }
-const KIND_LABEL: Record<UpcomingKind, string> = { abonelik: 'Aylık', kart_taksidi: 'Taksit', kredi: 'Kredi', elden: 'Elden' }
+const KIND_LABEL: Record<UpcomingKind, string> = { abonelik: 'Aylık', kart_taksidi: 'Taksit', kredi: 'Kredi', elden: 'Elden', kontrat: 'Gelir' }
 
 function todayISO() { return new Date().toISOString().slice(0, 10) }
 function longDate(iso: string) { const [y, m, d] = iso.split('-').map(Number); return `${d} ${TR_MON[m - 1]} ${y}` }
@@ -35,6 +35,7 @@ type Row = {
     sourceId: string          // abonelik: subId; taksit: installment id (detay için)
     categoryName: string | null
     paid: boolean
+    income: boolean           // sözleşme geliri mi (yeşil, + işaret)
 }
 
 type Sub = { id: string; name: string; amount: number; frequency: string; next_payment_date: string; status?: string | null; category_id?: string | null }
@@ -44,6 +45,7 @@ export default function YaklasanPage() {
     const [txs, setTxs] = useState<any[]>([])
     const [subs, setSubs] = useState<Sub[]>([])
     const [insts, setInsts] = useState<Inst[]>([])
+    const [conPays, setConPays] = useState<{ id: string; amount: number; expected_date: string; status: string; contractName: string }[]>([])
     const [catName, setCatName] = useState<Map<string, string>>(new Map())
     const [accName, setAccName] = useState<Map<string, string>>(new Map())
     const [isLoading, setIsLoading] = useState(true)
@@ -57,18 +59,23 @@ export default function YaklasanPage() {
             if (!user) return
             const hhId = await ensureHouseholdExists(user.id)
             if (!hhId) return
-            const [txRes, subRes, instRes, catRes, accRes] = await Promise.all([
+            const [txRes, subRes, instRes, catRes, accRes, conRes] = await Promise.all([
                 supabase.from('transactions').select('id, amount, type, cash_date, description, category_id, account_id, source_type, source_id, transfer_direction').eq('household_id', hhId),
                 supabase.from('subscriptions').select('id, name, amount, frequency, next_payment_date, status, category_id, end_date').eq('household_id', hhId),
                 supabase.from('installments').select('id, description, kind, category_id, installment_payments(id, payment_date, amount)').eq('household_id', hhId),
                 supabase.from('categories').select('id, name').eq('household_id', hhId),
                 supabase.from('accounts').select('id, name').eq('household_id', hhId),
+                supabase.from('contracts').select('id, name, contract_payments(id, amount, expected_date, status)').eq('household_id', hhId),
             ])
             setTxs(txRes.data || [])
             setSubs((subRes.data || []) as Sub[])
             setInsts((instRes.data || []).map((i: any) => ({ ...i, payments: i.installment_payments || [] })))
             setCatName(new Map((catRes.data || []).map((c: any) => [c.id, c.name])))
             setAccName(new Map((accRes.data || []).map((a: any) => [a.id, a.name])))
+            setConPays((conRes.data || []).flatMap((c: any) =>
+                (c.contract_payments || [])
+                    .filter((p: any) => p.status === 'pending')
+                    .map((p: any) => ({ id: p.id, amount: Number(p.amount), expected_date: p.expected_date, status: p.status, contractName: c.name }))))
         } catch (e) {
             console.error('Yaklaşan hesaplanamadı:', e)
         } finally {
@@ -92,13 +99,15 @@ export default function YaklasanPage() {
     const upcoming = useMemo(() => buildUpcoming({
         transactions: txs, subscriptions: subs as any,
         installments: insts.map(i => ({ id: i.id, description: i.description, kind: i.kind, payments: i.payments })),
-    }, { from: asOf }), [txs, subs, insts, asOf])
+        contractPayments: conPays,
+    }, { from: asOf }), [txs, subs, insts, conPays, asOf])
 
     // Kalem → Row (kategori + detay sourceId).
     const toRow = (it: UpcomingItem, paid: boolean): Row => {
-        const instId = it.kind === 'abonelik' ? it.sourceId : (paymentToInst.get(it.sourceId) ?? it.sourceId)
-        const cat = it.kind === 'abonelik' ? subCat.get(it.sourceId) ?? null : instCat.get(instId) ?? null
-        return { key: `${it.sourceId}-${it.date}`, date: it.date, label: it.label, amount: it.amount, kind: it.kind, sourceId: instId, categoryName: cat, paid }
+        const income = it.direction === 'income'
+        const instId = (it.kind === 'abonelik' || it.kind === 'kontrat') ? it.sourceId : (paymentToInst.get(it.sourceId) ?? it.sourceId)
+        const cat = income ? null : it.kind === 'abonelik' ? subCat.get(it.sourceId) ?? null : instCat.get(instId) ?? null
+        return { key: `${it.sourceId}-${it.date}`, date: it.date, label: it.label, amount: it.amount, kind: it.kind, sourceId: instId, categoryName: cat, paid, income }
     }
 
     // BU AY: gelecek (buildUpcoming) + ödenmiş (transactions, source_type dolu, bu ay, <=asOf).
@@ -108,30 +117,37 @@ export default function YaklasanPage() {
         for (const t of txs) {
             if (!t.source_type || !t.cash_date) continue
             if (t.cash_date.slice(0, 7) !== curMonth || t.cash_date > asOf) continue
-            const kind: UpcomingKind = t.source_type === 'installment' ? 'kart_taksidi' : 'abonelik'
-            const instId = kind === 'abonelik' ? '' : (paymentToInst.get(t.source_id) ?? '')
-            const cat = kind === 'abonelik'
-                ? null // ödenmiş abonelik hareketi — kategori tx'ten
+            const income = t.type === 'income' || t.source_type === 'contract'
+            const kind: UpcomingKind = t.source_type === 'installment' ? 'kart_taksidi'
+                : t.source_type === 'contract' ? 'kontrat' : 'abonelik'
+            const instId = (kind === 'abonelik' || kind === 'kontrat') ? '' : (paymentToInst.get(t.source_id) ?? '')
+            const cat = income || kind === 'abonelik'
+                ? null // ödenmiş abonelik/gelir hareketi — kategori tx'ten
                 : instCat.get(instId) ?? null
             paidRows.push({
                 key: `paid-${t.id}`, date: t.cash_date, label: t.description || 'Ödeme', amount: Math.abs(Number(t.amount)),
-                kind, sourceId: instId || t.source_id, categoryName: cat ?? (t.category_id ? catName.get(t.category_id) ?? null : null), paid: true,
+                kind, sourceId: instId || t.source_id, categoryName: cat ?? (t.category_id ? catName.get(t.category_id) ?? null : null), paid: true, income,
             })
         }
         return [...paidRows, ...future].sort((a, b) => a.date.localeCompare(b.date))
     }, [upcoming, txs, curMonth, asOf])
 
-    // Özet: bu ay ödenen / kalan.
+    // Özet: bu ay gider ödenen / kalan + gelir + net.
     const summary = useMemo(() => {
-        const paid = thisMonth.filter(r => r.paid).reduce((s, r) => s + r.amount, 0)
-        const remaining = thisMonth.filter(r => !r.paid).reduce((s, r) => s + r.amount, 0)
-        return { paid: Math.round(paid), remaining: Math.round(remaining), total: Math.round(paid + remaining) }
+        const exp = thisMonth.filter(r => !r.income)
+        const paid = exp.filter(r => r.paid).reduce((s, r) => s + r.amount, 0)
+        const remaining = exp.filter(r => !r.paid).reduce((s, r) => s + r.amount, 0)
+        const income = thisMonth.filter(r => r.income).reduce((s, r) => s + r.amount, 0)
+        return {
+            paid: Math.round(paid), remaining: Math.round(remaining), total: Math.round(paid + remaining),
+            income: Math.round(income), net: Math.round(income - (paid + remaining)),
+        }
     }, [thisMonth])
 
-    const futureMonths = useMemo(() => upcoming.months.filter(m => m.month > curMonth && m.total > 0), [upcoming, curMonth])
+    const futureMonths = useMemo(() => upcoming.months.filter(m => m.month > curMonth && (m.total > 0 || m.incomeTotal > 0)), [upcoming, curMonth])
 
     const detail = useMemo<RecurringDetail | null>(() => {
-        if (!selected) return null
+        if (!selected || selected.income) return null // gelir (kontrat) için abonelik detayı üretilmez
         return getRecurringDetail({
             sourceId: selected.sourceId, kind: selected.kind, label: selected.label,
             transactions: txs, subscriptions: subs as any,
@@ -154,9 +170,13 @@ export default function YaklasanPage() {
     const sub = selected ? subs.find(s => s.id === selected.sourceId) : null
     const inst = selected ? insts.find(i => i.id === selected.sourceId) : null
 
-    const detailNode = selected && detail && (
-        <RecurringDetailPanel row={selected} detail={detail} sub={sub} inst={inst} accName={accName}
-            onClose={() => setSelected(null)} onChanged={() => { setSelected(null); fetchAll() }} />
+    const detailNode = selected && (
+        selected.income
+            ? <ContractDetailPanel row={selected} onClose={() => setSelected(null)} />
+            : detail && (
+                <RecurringDetailPanel row={selected} detail={detail} sub={sub} inst={inst} accName={accName}
+                    onClose={() => setSelected(null)} onChanged={() => { setSelected(null); fetchAll() }} />
+            )
     )
 
     return (
@@ -200,7 +220,11 @@ export default function YaklasanPage() {
                                                 {monthLabel(m.month)}
                                                 {m.isHeavy && <span style={{ fontSize: 10.5, color: 'var(--budget-near)' }}>yoğun · {m.heavyReason}</span>}
                                             </span>
-                                            <span className="tnum" style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{formatTL(m.total)}</span>
+                                            <span className="tnum flex items-baseline gap-[var(--s2)]" style={{ fontSize: 12.5 }}>
+                                                {m.incomeTotal > 0 && <span style={{ color: 'var(--flow-in)' }}>+{formatTL(m.incomeTotal)}</span>}
+                                                {m.total > 0 && <span style={{ color: 'var(--ink-3)' }}>−{formatTL(m.total)}</span>}
+                                                {m.incomeTotal > 0 && <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>net {m.net >= 0 ? '+' : '−'}{formatTL(m.net)}</span>}
+                                            </span>
                                         </div>
                                         <ul>{m.items.map(it => { const r = toRow(it, false); return <ItemRow key={r.key} row={r} selected={selected?.key === r.key} onSelect={() => setSelected(r)} compact /> })}</ul>
                                     </div>
@@ -219,7 +243,7 @@ export default function YaklasanPage() {
             )}
 
             {/* Mobil bottom sheet */}
-            {selected && detail && (
+            {selected && (detail || selected.income) && (
                 <div className="fixed inset-0 z-50 flex flex-col justify-end lg:hidden" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={() => setSelected(null)}>
                     <div className="max-h-[90vh] overflow-y-auto" style={{ background: 'var(--surface)', borderTopLeftRadius: 'var(--r-card)', borderTopRightRadius: 'var(--r-card)' }} onClick={e => e.stopPropagation()}>
                         {detailNode}
@@ -230,14 +254,20 @@ export default function YaklasanPage() {
     )
 }
 
-function SummaryCard({ summary }: { summary: { paid: number; remaining: number; total: number } }) {
+function SummaryCard({ summary }: { summary: { paid: number; remaining: number; total: number; income: number; net: number } }) {
     const pct = summary.total > 0 ? summary.paid / summary.total : 0
     const R = 26, C = 2 * Math.PI * R
     return (
         <section style={{ background: 'var(--surface)', borderRadius: 'var(--r-card)' }} className="flex items-center justify-between gap-[var(--s4)] p-[22px]">
-            <div>
+            <div className="min-w-0">
                 <div className="tnum" style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink)' }}>{formatTL(summary.paid)} ödendi</div>
                 <div className="tnum mt-[2px]" style={{ fontSize: 13.5, color: 'var(--ink-3)' }}>bu ay {formatTL(summary.remaining)} ödenecek kaldı</div>
+                {summary.income > 0 && (
+                    <div className="tnum mt-[var(--s2)] flex flex-wrap items-baseline gap-x-[var(--s3)] gap-y-[2px]" style={{ fontSize: 13 }}>
+                        <span style={{ color: 'var(--flow-in)' }}>+{formatTL(summary.income)} gelir</span>
+                        <span style={{ color: 'var(--ink-3)' }}>net {summary.net >= 0 ? '+' : '−'}{formatTL(summary.net)}</span>
+                    </div>
+                )}
             </div>
             <svg width={64} height={64} viewBox="0 0 64 64" className="shrink-0">
                 <circle cx={32} cy={32} r={R} fill="none" stroke="var(--fill-track)" strokeWidth={6} />
@@ -257,10 +287,10 @@ function ItemRow({ row, selected, onSelect, compact }: { row: Row; selected: boo
                 {/* Tek sıra, gap'li: gün · ad · sıklık · pill · tik · tutar — hiçbiri absolute değil */}
                 <span className="tnum w-[22px] shrink-0 text-center" style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{day}</span>
                 <span className="min-w-0 flex-1 truncate" style={{ fontSize: 14.5, color: 'var(--ink)' }}>{row.label}</span>
-                <span className="shrink-0" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{KIND_LABEL[row.kind]}</span>
+                <span className="shrink-0" style={{ fontSize: 11, color: row.income ? 'var(--flow-in)' : 'var(--ink-3)' }}>{KIND_LABEL[row.kind]}</span>
                 {!compact && row.categoryName && <span className="shrink-0"><CategoryPill name={row.categoryName} /></span>}
                 {row.paid && <Check className="h-[14px] w-[14px] shrink-0" style={{ color: 'var(--flow-in)' }} strokeWidth={3} />}
-                <span className="tnum shrink-0 text-right" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ink)' }}>{formatTL(row.amount)}</span>
+                <span className="tnum shrink-0 text-right" style={{ fontSize: 14.5, fontWeight: 600, color: row.income ? 'var(--flow-in)' : 'var(--ink)' }}>{row.income ? '+' : ''}{formatTL(row.amount)}</span>
             </button>
         </li>
     )
@@ -382,6 +412,29 @@ function RecurringDetailPanel({ row, detail, sub, inst, accName, onClose, onChan
             <div className="mt-[var(--s5)] flex items-center gap-[var(--s4)] pt-[var(--s4)]" style={{ borderTop: '1px solid var(--border)' }}>
                 <Link href="/subscriptions" className="inline-flex items-center gap-[var(--s2)]" style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ink)' }}><Pencil className="h-[14px] w-[14px]" /> Düzenle</Link>
                 <button onClick={remove} className="inline-flex items-center gap-[var(--s2)]" style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--flow-out)' }}><Trash2 className="h-[14px] w-[14px]" /> Sil</button>
+            </div>
+        </div>
+    )
+}
+
+/** Sözleşme gelir kalemi için sade panel — kontratlar ekranına yönlendirir. */
+function ContractDetailPanel({ row, onClose }: { row: Row; onClose: () => void }) {
+    return (
+        <div className="p-[22px]">
+            <div className="mb-[var(--s3)] flex items-center justify-between">
+                <span style={{ fontSize: 11.5, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--flow-in)' }}>Sözleşme geliri</span>
+                <button onClick={onClose} aria-label="Kapat"><ChevronDown className="h-[18px] w-[18px] lg:hidden" style={{ color: 'var(--ink-3)' }} /><X className="hidden h-[16px] w-[16px] lg:inline" style={{ color: 'var(--ink-3)' }} /></button>
+            </div>
+            <div className="flex items-start justify-between gap-[var(--s3)]">
+                <h2 className="min-w-0 truncate" style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink)' }}>{row.label}</h2>
+                <div className="shrink-0 text-right">
+                    <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>Beklenen</div>
+                    <div className="tnum mt-[1px]" style={{ fontSize: 18, fontWeight: 600, color: 'var(--flow-in)' }}>+{formatTL(row.amount)}</div>
+                    <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{longDate(row.date)}{row.paid ? ' · alındı' : ''}</div>
+                </div>
+            </div>
+            <div className="mt-[var(--s5)] flex items-center gap-[var(--s4)] pt-[var(--s4)]" style={{ borderTop: '1px solid var(--border)' }}>
+                <Link href="/contracts" className="inline-flex items-center gap-[var(--s2)]" style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ink)' }}><Pencil className="h-[14px] w-[14px]" /> Kontratlarda düzenle</Link>
             </div>
         </div>
     )

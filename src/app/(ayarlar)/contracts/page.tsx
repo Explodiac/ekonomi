@@ -400,6 +400,22 @@ export default function ContractsPage() {
                 .eq('id', currentPaymentToConfirm.id);
             if (payError) throw payError;
 
+            // 4. Madde 6: kontratın next_payment_date'ini kalan ilk BEKLEYEN ödemeye
+            // ilerlet. Bu ödeme yukarıda 'paid' yapıldığı için sorgu onu dışlar; hiç
+            // bekleyen kalmadıysa dokunma (kontrat tamamlanmış sayılır).
+            const { data: nextPending } = await supabase
+                .from('contract_payments')
+                .select('expected_date')
+                .eq('contract_id', currentPaymentToConfirm.contract_id)
+                .eq('status', 'pending')
+                .order('expected_date', { ascending: true })
+                .limit(1);
+            if (nextPending && nextPending[0]) {
+                await supabase.from('contracts')
+                    .update({ next_payment_date: nextPending[0].expected_date })
+                    .eq('id', currentPaymentToConfirm.contract_id);
+            }
+
             setIsPaymentConfirmOpen(false);
             setCurrentPaymentToConfirm(null);
             fetchInitialData();
