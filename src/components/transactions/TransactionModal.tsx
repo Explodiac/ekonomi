@@ -338,7 +338,8 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                     type: type,
                     transaction_date: new Date(date).toISOString(),
                     // Düzenlemede eski cash_date verilir → gerçekleşmiş hareket ileriye atılmaz.
-                    cash_date: resolveCashDate({ transactionDate: date, currentCashDate: initialData?.cash_date, targetAccount: accountForCashDate }),
+                    // Transfer bacaklarında kart mantığı uygulanmaz (para hareket günü taşınır).
+                    cash_date: resolveCashDate({ transactionDate: date, currentCashDate: initialData?.cash_date, targetAccount: accountForCashDate, isTransfer: type === 'transfer' }),
                     description: description
                 }
 
@@ -364,7 +365,8 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                         {
                             ...txData,
                             account_id: toAccount,
-                            cash_date: resolveCashDate({ transactionDate: date, targetAccount: toAccountObj }),
+                            // Hedef kart olsa bile transfer bacağı kart mantığına girmez.
+                            cash_date: resolveCashDate({ transactionDate: date, targetAccount: toAccountObj, isTransfer: true }),
                             transfer_group_id: groupId,
                             transfer_direction: 'in',
                         },

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { X, Loader2 } from "lucide-react"
 import { derivedBalance } from "@/lib/balance"
+import { recomputeCardCashDates } from "@/lib/cash-date"
 
 type Account = {
     id: string;
@@ -156,6 +157,27 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                     })
                     .eq('id', account.id)
                 if (error) throw error
+
+                // Madde 8d: kesim/son-ödeme günü değiştiyse, bu karta ait GELECEK
+                // harcamaların cash_date'ini yeni kurala göre yeniden hesapla.
+                const newCut = dbType === 'credit_card' ? parseInt(cutDate) || null : null
+                const newDue = dbType === 'credit_card' ? parseInt(dueDate) || null : null
+                const cutChanged = (account.cut_date ?? null) !== newCut
+                const dueChanged = (account.due_date ?? null) !== newDue
+                if (dbType === 'credit_card' && newCut && newDue && (cutChanged || dueChanged)) {
+                    const { data: cardTx } = await supabase
+                        .from('transactions')
+                        .select('id, transaction_date, cash_date, type, transfer_direction')
+                        .eq('account_id', account.id)
+                    const updates = recomputeCardCashDates(
+                        (cardTx || []).map((t: any) => ({ ...t, transaction_date: (t.transaction_date || '').slice(0, 10) })),
+                        { type: 'credit_card', cut_date: newCut, due_date: newDue },
+                    )
+                    if (updates.length) {
+                        await Promise.all(updates.map(u =>
+                            supabase.from('transactions').update({ cash_date: u.cash_date }).eq('id', u.id)))
+                    }
+                }
             } else {
                 // INSERT
                 const { data: newAcc, error } = await supabase

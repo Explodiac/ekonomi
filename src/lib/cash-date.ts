@@ -57,10 +57,35 @@ function todayStr(): string {
 }
 
 /**
+ * Kartın kesim/son-ödeme günü değişince, o karta ait GELECEK (henüz gerçekleşmemiş,
+ * cash_date > bugün) harcamaların cash_date'ini yeni kurala göre yeniden hesaplar.
+ * (Madde 8d.) Yalnız değişen kayıtlar döner. Gerçekleşmiş (cash_date <= bugün)
+ * kayıtlara ve transfer bacaklarına (kart mantığı uygulanmaz) dokunulmaz.
+ */
+export function recomputeCardCashDates(
+    txs: { id: string; transaction_date: string; cash_date: string; type?: string | null; transfer_direction?: string | null }[],
+    card: CashDateAccount,
+    today: string = todayStr()
+): { id: string; cash_date: string }[] {
+    const out: { id: string; cash_date: string }[] = []
+    for (const t of txs) {
+        if (!t.cash_date || t.cash_date <= today) continue // gerçekleşmiş — dokunma
+        if (t.type === 'transfer' || t.transfer_direction) continue // transfer kart mantığına girmez
+        const newCash = calculateCashDate(t.transaction_date, card)
+        if (newCash !== t.cash_date) out.push({ id: t.id, cash_date: newCash })
+    }
+    return out
+}
+
+/**
  * cash_date'i TEK kaynaktan çözer — hem yeni kayıt hem hesap düzeltmesi için.
  * Panel ve modal bunu kullanır; iki ayrı yerde iki farklı mantık olmaz.
  *
- * Üç kural (hepsi):
+ * Dört kural (hepsi):
+ *  0. TRANSFER bacağı: kesim/ödeme mantığı ASLA uygulanmaz — para hareket günü
+ *     taşınır. Karta yapılan ödeme (transfer 'in') aynı gün borcu düşürür; karttan
+ *     çıkan transfer de o gün çıkar. cash_date = transaction_date. (Kart ödemesi
+ *     yanlışlıkla son ödeme gününe/gelecek aya atılıyordu.)
  *  1. Hedef kredi kartı DEĞİLSE (banka/nakit/…): cash_date = transaction_date.
  *     Kart kesim/ödeme mantığı hiç çalıştırılmaz.
  *  2. Hedef kredi kartıysa: kesim/ödeme mantığı HAREKETİN transaction_date'inden
@@ -78,9 +103,14 @@ export function resolveCashDate(input: {
     targetAccount: CashDateAccount | null | undefined
     /** Bugün (YYYY-MM-DD). Test için verilebilir; verilmezse sistem bugünü. */
     today?: string
+    /** Transfer bacağı mı — öyleyse kart mantığı uygulanmaz (kural 0). */
+    isTransfer?: boolean
 }): string {
     const txStr = format(toDateOnly(input.transactionDate))
     const acc = input.targetAccount
+
+    // Kural 0: transfer → her zaman transaction_date (kart mantığı yok).
+    if (input.isTransfer) return txStr
 
     // Kural 1: kart değil → transaction_date (calculateCashDate hiç çağrılmaz).
     if (!acc || acc.type !== 'credit_card' || !acc.cut_date || !acc.due_date) {

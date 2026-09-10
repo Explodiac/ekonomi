@@ -50,9 +50,9 @@ test('tutar azaltma bakiyeleri simetrik geri alır', () => {
     assert.equal(byAcc.get('acc-bank2'), 1500)
 })
 
-test('tarih değişimi: kaynak banka bacağı = yeni tarih; hedef kart bacağı = kesim/ödemeden', () => {
-    // Kaynak banka, hedef kart. Yeni tarih 15 Eylül. Kart kesim=1, ödeme=10:
-    // 15 >= kesim(1) → sonraki ekstre → ödeme 10 Ekim. Banka bacağı = 15 Eylül.
+test('8c: transfer bacaklarının İKİSİ de transaction_date (hedef kart olsa bile kesim/ödeme uygulanmaz)', () => {
+    // Kaynak banka, hedef kart. Yeni tarih 15 Eylül. Kart ödemesi bir transferdir;
+    // para 15 Eylül taşınır — kart kesim/ödeme mantığı UYGULANMAZ (madde 8c).
     const l: TransferLeg[] = [
         { id: 'leg-out', account_id: 'acc-bank', transfer_direction: 'out', cash_date: '2026-10-05' },
         { id: 'leg-in', account_id: 'acc-card', transfer_direction: 'in', cash_date: '2026-10-05' },
@@ -63,7 +63,7 @@ test('tarih değişimi: kaynak banka bacağı = yeni tarih; hedef kart bacağı 
     })
     const byLeg = new Map(plan.legUpdates.map(u => [u.id, u.cash_date]))
     assert.equal(byLeg.get('leg-out'), '2026-09-15')  // banka: transaction_date
-    assert.equal(byLeg.get('leg-in'), '2026-10-10')   // kart: kesim/ödeme
+    assert.equal(byLeg.get('leg-in'), '2026-09-15')   // kart bacağı da transaction_date (kart mantığı yok)
 })
 
 test('gerçekleşmiş bacak ileri atılmaz (rule 3): geçmişte kalan kart bacağı tarihe sabitlenir', () => {

@@ -42,12 +42,14 @@ export function planTransferEdit(input: {
 
     const legUpdates = input.legs.map(leg => {
         const acc = leg.account_id ? accById.get(leg.account_id) : undefined
-        // Her bacak kendi hesabından cash_date çözer (kaynak banka, hedef kart olabilir).
+        // Transfer bacağı: kart mantığı uygulanmaz — para hareket günü taşınır
+        // (kaynak/hedef kart olsa bile cash_date = transaction_date).
         const cash_date = resolveCashDate({
             transactionDate: input.newDate,
             currentCashDate: leg.cash_date,
             targetAccount: acc,
             today: input.today,
+            isTransfer: true,
         })
         return { id: leg.id, cash_date, amount: input.newAmount }
     })
