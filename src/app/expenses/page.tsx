@@ -111,13 +111,7 @@ export default function ExpensesPage() {
         try {
             const { error } = await supabase.from('transactions').delete().eq('id', id);
             if (error) throw error;
-
-            if (account_id) {
-                const { data: acc } = await supabase.from('accounts').select('balance').eq('id', account_id).single();
-                if (acc) {
-                    await supabase.from('accounts').update({ balance: acc.balance + amount }).eq('id', account_id);
-                }
-            }
+            // accounts.balance yazılmaz — bakiye hareketlerden türetilir.
 
             setExpenses(prev => prev.filter(tx => tx.id !== id));
         } catch (e: any) {

@@ -380,15 +380,7 @@ export default function ContractsPage() {
                 });
             if (transError) throw transError;
 
-            // 2. Update Account Balance
-            const targetAccount = accounts.find(a => a.id === selectedConfirmAccountId);
-            if (targetAccount) {
-                const { error: accError } = await supabase
-                    .from('accounts')
-                    .update({ balance: targetAccount.balance + currentPaymentToConfirm.amount })
-                    .eq('id', selectedConfirmAccountId);
-                if (accError) throw accError;
-            }
+            // accounts.balance yazılmaz — gelir hareketi bakiye türetmesine otomatik yansır.
 
             // 3. Update Payment Status
             const { error: payError } = await supabase

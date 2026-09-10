@@ -231,9 +231,7 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                         amount: u.amount, transaction_date: txnDate, cash_date: u.cash_date, description,
                     }).eq('id', u.id)
                 ))
-                await Promise.all(plan.balanceUpdates.map(b =>
-                    supabase.from('accounts').update({ balance: b.balance }).eq('id', b.accountId)
-                ))
+                // accounts.balance yazılmaz — bakiye opening_balance + hareketlerden türetilir.
 
                 await createNotification(householdId, 'Transfer Güncellendi', `${user.email?.split('@')[0] || 'Kullanıcı'}: transfer ₺${numAmount} olarak güncellendi.`, 'info')
                 setAmount(""); setDescription("")
@@ -241,23 +239,9 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                 return
             }
 
-            // --- UNDO OLD BALANCE EFFECTS IF EDITING ---
-            if (initialData) {
-                const oldAcc = accounts.find(a => a.id === initialData.account_id)
-                if (oldAcc) {
-                    let oldBalance = Number(oldAcc.balance)
-                    if (initialData.type === 'income') oldBalance -= initialData.amount
-                    else oldBalance += initialData.amount
-                    await supabase.from('accounts').update({ balance: oldBalance }).eq('id', initialData.account_id)
-                }
-
-                if (initialData.type === 'transfer' && initialData.to_account_id) {
-                    const oldToAcc = accounts.find(a => a.id === initialData.to_account_id)
-                    if (oldToAcc) {
-                        await supabase.from('accounts').update({ balance: Number(oldToAcc.balance) - initialData.amount }).eq('id', initialData.to_account_id)
-                    }
-                }
-            }
+            // accounts.balance ARTIK YAZILMAZ (tek gerçek kaynak: opening_balance +
+            // hareketler). Eski "undo/apply balance" blokları kaldırıldı; bakiye her
+            // ekranda deriveAccountBalances ile türetilir.
 
             // --- PERFORM THE TRANSACTION ---
             const accountForCashDate = accounts.find(a => a.id === selectedAccount)
@@ -380,25 +364,7 @@ export function TransactionModal({ isOpen, onClose, type: initialType, onSuccess
                 }
             }
 
-            // --- APPLY NEW BALANCE EFFECTS ---
-            // Refresh accounts before update
-            const { data: freshAccounts } = await supabase.from('accounts').select('*').eq('household_id', householdId)
-            const accs = freshAccounts || accounts
-
-            const fromAccObj = accs.find(a => a.id === selectedAccount)
-            if (fromAccObj) {
-                let newBalance = Number(fromAccObj.balance)
-                if (type === 'income') newBalance += numAmount
-                else newBalance -= numAmount
-                await supabase.from('accounts').update({ balance: newBalance }).eq('id', selectedAccount)
-            }
-
-            if (type === 'transfer' && toAccount) {
-                const toAccObj = accs.find(a => a.id === toAccount)
-                if (toAccObj) {
-                    await supabase.from('accounts').update({ balance: Number(toAccObj.balance) + numAmount }).eq('id', toAccount)
-                }
-            }
+            // accounts.balance yazılmaz — bakiye opening_balance + hareketlerden türetilir.
 
             const userName = user.email?.split('@')[0] || 'Kullanıcı'
             let notificationTitle = initialData ? 'İşlem Güncellendi' : 'Yeni İşlem'

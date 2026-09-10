@@ -201,16 +201,7 @@ export default function SubscriptionsPage() {
                     source_id: currentSubToPay.id
                 })
             if (transError) throw transError
-
-            // 2. Hesap Bakiyesini Güncelle
-            const targetAccount = accounts.find(a => a.id === selectedAccountId)
-            if (targetAccount) {
-                const { error: accError } = await supabase
-                    .from('accounts')
-                    .update({ balance: targetAccount.balance - currentSubToPay.amount })
-                    .eq('id', selectedAccountId)
-                if (accError) throw accError
-            }
+            // accounts.balance yazılmaz — gider hareketi bakiye türetmesine otomatik yansır.
 
             // 3. Abonelik Tarihini Beri At (Periyoda göre)
             const currentDate = new Date(currentSubToPay.next_payment_date)

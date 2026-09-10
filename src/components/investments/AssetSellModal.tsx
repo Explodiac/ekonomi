@@ -109,15 +109,8 @@ export function AssetSellModal({ isOpen, asset, onClose, onSuccess }: ModalProps
                 if (updError) throw updError
             }
 
-            // 2. Update Account Balance
+            // accounts.balance yazılmaz — satış gelir hareketi bakiye türetmesine yansır.
             const targetAcc = accounts.find(a => a.id === accountId)
-            if (targetAcc) {
-                const { error: accError } = await supabase
-                    .from('accounts')
-                    .update({ balance: Number(targetAcc.balance) + totalPayout })
-                    .eq('id', accountId)
-                if (accError) throw accError
-            }
 
             // 3. Log Transaction
             const { error: txError } = await supabase.from('transactions').insert({

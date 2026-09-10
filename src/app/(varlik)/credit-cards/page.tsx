@@ -101,7 +101,7 @@ export default function CreditCardsPage() {
                 .select('account_id, amount, type, transaction_date, cash_date, transfer_direction')
                 .eq('household_id', hhId)
 
-            setDerivedBalances(deriveAccountBalances(accounts, allTxForBalance || []))
+            setDerivedBalances(deriveAccountBalances(accounts, allTxForBalance || [], { warn: false }))
 
             if (accounts.filter(a => a.type !== 'credit_card').length > 0) {
                 setSourceAccountId(accounts.filter(a => a.type !== 'credit_card')[0].id)
@@ -207,15 +207,7 @@ export default function CreditCardsPage() {
 
             const { error } = await supabase.from('transactions').delete().eq('id', id)
             if (error) throw error
-
-            for (const leg of legs) {
-                if (!leg.account_id) continue
-                const { data: acc } = await supabase.from('accounts').select('balance').eq('id', leg.account_id).single()
-                if (!acc) continue
-                await supabase.from('accounts')
-                    .update({ balance: Number(acc.balance) - transactionEffect(leg) })
-                    .eq('id', leg.account_id)
-            }
+            // accounts.balance yazılmaz — bakiye hareketlerden türetilir; hareket silinince otomatik düşer.
 
             const deletedIds = new Set(legs.map(l => l.id))
             setCardTransactions(prev => prev.filter(t => !deletedIds.has(t.id)))
@@ -275,15 +267,7 @@ export default function CreditCardsPage() {
                 },
             ])
             if (txError) throw txError
-
-            // 3. Update source balance
-            const sourceAcc = allAccounts.find(a => a.id === sourceAccountId)
-            if (sourceAcc) {
-                await supabase.from('accounts').update({ balance: sourceAcc.balance - amount }).eq('id', sourceAccountId)
-            }
-
-            // 4. Update card balance
-            await supabase.from('accounts').update({ balance: selectedCard.balance + amount }).eq('id', selectedCard.id)
+            // accounts.balance yazılmaz — iki transfer bacağı bakiyeleri türetmede otomatik yansır.
 
             alert("Ödeme başarıyla kaydedildi!")
             setIsPaymentModalOpen(false)
@@ -321,16 +305,7 @@ export default function CreditCardsPage() {
                 .delete()
                 .eq('id', installment.id)
             if (instError) throw instError
-
-            // 4. Revert balance (add back the total amount)
-            const card = cards.find(c => c.id === installment.account_id)
-            if (card) {
-                const { error: accError } = await supabase
-                    .from('accounts')
-                    .update({ balance: Number(card.balance) + Number(installment.total_amount) })
-                    .eq('id', card.id)
-                if (accError) throw accError
-            }
+            // accounts.balance yazılmaz — taksit hareketleri silinince bakiye türetmede otomatik düşer.
 
             alert("Taksit başarıyla silindi!")
             fetchData()
@@ -443,14 +418,7 @@ export default function CreditCardsPage() {
             }])
 
             if (txError) throw txError
-
-            // 2. Update card balance (Available limit decreases further by adding interest as debt)
-            const { error: accError } = await supabase
-                .from('accounts')
-                .update({ balance: Number(card.balance) - interestAmount })
-                .eq('id', card.id)
-
-            if (accError) throw accError
+            // accounts.balance yazılmaz — faiz gideri hareketten türetilen bakiyeye yansır.
 
             alert("Borç başarıyla devredildi ve faiz işletildi!")
             fetchData()

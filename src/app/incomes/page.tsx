@@ -83,13 +83,7 @@ export default function IncomesPage() {
         try {
             const { error: deleteError } = await supabase.from('transactions').delete().eq('id', id);
             if (deleteError) throw new Error("İşlem silinirken hata oluştu: " + deleteError.message);
-
-            if (account_id && amount) {
-                const { data: acc } = await supabase.from('accounts').select('balance').eq('id', account_id).single();
-                if (acc) {
-                    await supabase.from('accounts').update({ balance: acc.balance - amount }).eq('id', account_id);
-                }
-            }
+            // accounts.balance yazılmaz — bakiye hareketlerden türetilir.
 
             setIncomes(prev => prev.filter(tx => tx.id !== id));
             setIsDeleteModalOpen(false);

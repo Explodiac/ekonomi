@@ -145,7 +145,7 @@ export default function DashboardPage() {
                     .map((p: any) => ({ ...p, contract_id: c.id, contractName: c.name }))
             )
 
-            const derived = deriveAccountBalances(accountList, rows)
+            const derived = deriveAccountBalances(accountList, rows, { warn: false })
 
             const projectionResult = buildProjection({
                 accounts: accountList,
@@ -1050,8 +1050,7 @@ function FaizApprovalModal({ pending, accounts, hhId, onClose, onDone }: {
                 transaction_date: new Date(p.periodEnd + 'T00:00:00').toISOString(),
                 cash_date: p.periodEnd, description: 'Faiz', source_type: 'faiz',
             })
-            const acc = accounts.find(a => a.id === p.accountId)
-            if (acc) await supabase.from('accounts').update({ balance: Number(acc.balance) - amount }).eq('id', p.accountId)
+            // accounts.balance yazılmaz — faiz gideri bakiye türetmesine otomatik yansır.
             await mark(p)
             setEditing(null); setDone(s => new Set(s).add(p.fingerprint))
         } catch (e) { console.error('Faiz kaydedilemedi:', e) } finally { setBusy(null) }

@@ -133,12 +133,7 @@ export function QuickEntry({
                 }
             }
 
-            if (targetAccount) {
-                const newBalance = parsed.type === 'income'
-                    ? Number(targetAccount.balance) + parsed.amount!
-                    : Number(targetAccount.balance) - parsed.amount!
-                await supabase.from('accounts').update({ balance: newBalance }).eq('id', targetAccountId)
-            }
+            // accounts.balance yazılmaz — bakiye opening_balance + hareketlerden türetilir.
 
             const userName = user.email?.split('@')[0] || 'Kullanıcı'
             await createNotification(

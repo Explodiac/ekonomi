@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { supabase, ensureHouseholdExists } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,11 +13,16 @@ type Account = {
     name: string;
     type: string;
     balance: number;
+    opening_balance?: number;
     currency: string;
     credit_limit?: number;
     cut_date?: number;
     due_date?: number;
     interest_rate?: number | null;
+}
+
+function formatTL(n: number): string {
+    return `${new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 }).format(Math.round(n))} ₺`
 }
 
 type ModalProps = {
@@ -43,6 +48,8 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
 
     const [isLoading, setIsLoading] = useState(false)
     const [householdId, setHouseholdId] = useState<string | null>(null)
+    // Düzenlemede: hesabın hareketleri (türetilmiş güncel bakiyeyi canlı göstermek için).
+    const [accTx, setAccTx] = useState<{ amount: number | string; type: string; transaction_date?: string | null; cash_date: string; transfer_direction?: string | null }[]>([])
 
     useEffect(() => {
         if (isOpen) {
@@ -66,13 +73,15 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                 setInterestUnit('monthly')
                 setInterestRate(account.interest_rate != null ? String(Math.round((account.interest_rate / 12) * 100) / 100) : "")
 
-                if (account.type === 'credit_card') {
-                    // Show Available Limit to user: Available = Limit + Balance
-                    const available = (account.credit_limit || 0) + (account.balance || 0);
-                    setBalance(available.toString());
-                } else {
-                    setBalance(account.balance.toString())
-                }
+                // Düzenlemede alan artık AÇILIŞ bakiyesini gösterir (elle güncel bakiye
+                // yazma kaldırıldı). Kartta da ham opening_balance (başlangıç borcu).
+                setBalance(String(account.opening_balance ?? 0))
+                // Türetilmiş güncel bakiyeyi canlı göstermek için hareketleri çek.
+                setAccTx([])
+                supabase.from('transactions')
+                    .select('amount, type, transaction_date, cash_date, transfer_direction')
+                    .eq('account_id', account.id)
+                    .then(({ data }) => setAccTx(data || []))
             } else {
                 setName("")
                 setType("Vadesiz")
@@ -83,9 +92,16 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                 setDueDate("")
                 setInterestRate("")
                 setInterestUnit('monthly')
+                setAccTx([])
             }
         }
     }, [isOpen, account])
+
+    // Girilen açılış bakiyesine göre türetilmiş GÜNCEL bakiye (yalnız düzenlemede).
+    const derivedCurrent = useMemo(
+        () => derivedBalance(parseFloat(balance) || 0, accTx),
+        [balance, accTx]
+    )
 
     const fetchHouseholdId = async () => {
         try {
@@ -126,29 +142,23 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
             const annualRate = interestUnit === 'monthly' ? enteredRate * 12 : enteredRate
             const numInterestRate = isDebtType && interestRate.trim() !== '' ? annualRate : null
 
-            // For CC, we store Net Balance = Available - Limit. KMH ham bakiye kullanır.
-            const numBalance = dbType === 'credit_card' ? (rawBalance - rawLimit) : rawBalance
+            // Açılış bakiyesi (opening_balance) TEK gerçek kaynaktır; balance kolonu
+            // artık yazılmaz — güncel bakiye her yerde hareketlerden türetilir.
+            // DÜZENLEMEDE alan doğrudan opening_balance'ı gösterir/yazar.
+            // YENİ KAYITTA kart için "kullanılabilir limit" girildiğinden açılış =
+            // limit tabanlı net (available − limit); diğer tiplerde girilen değer.
+            const openingToSave = account
+                ? rawBalance
+                : (dbType === 'credit_card' ? (rawBalance - rawLimit) : rawBalance)
 
             if (account) {
-                // UPDATE
-                // Ekranda gösterilen bakiye hareketlerden türetiliyor. Kullanıcı buraya
-                // "güncel bakiye" yazdığında o rakamın görünmesi için açılış bakiyesini
-                // geri hesaplıyoruz: açılış = girilen − bugüne kadarki hareketlerin etkisi.
-                const { data: accTx } = await supabase
-                    .from('transactions')
-                    .select('amount, type, transaction_date, cash_date, transfer_direction')
-                    .eq('account_id', account.id)
-
-                const netSoFar = derivedBalance(0, accTx || [])
-                const newOpening = numBalance - netSoFar
-
+                // UPDATE — opening_balance doğrudan yazılır (geri-hesap YOK).
                 const { error } = await supabase
                     .from('accounts')
                     .update({
                         name,
                         type: dbType,
-                        balance: numBalance,
-                        opening_balance: newOpening,
+                        opening_balance: openingToSave,
                         currency,
                         credit_limit: isDebtType ? parseFloat(creditLimit) || 0 : 0,
                         cut_date: dbType === 'credit_card' ? parseInt(cutDate) || null : null,
@@ -186,11 +196,8 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                         household_id: householdId,
                         name,
                         type: dbType,
-                        balance: numBalance,
-                        // Açılış bakiyesi artık kendi kolonunda tutuluyor. Eskiden bunun
-                        // yerine sahte bir 'transfer' hareketi yazılıyordu; türetilmiş
-                        // bakiye o satırı çıkış sayıp bakiyeyi ters işaretli gösteriyordu.
-                        opening_balance: numBalance,
+                        // balance kolonu yazılmaz (türetilir). Açılış bakiyesi tek kaynaktır.
+                        opening_balance: openingToSave,
                         currency,
                         credit_limit: isDebtType ? parseFloat(creditLimit) || 0 : 0,
                         cut_date: dbType === 'credit_card' ? parseInt(cutDate) || null : null,
@@ -255,7 +262,7 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <label className="text-sm font-semibold ml-1 flex items-center gap-1">
-                                {type === 'Kredi Kartı' ? 'Kullanılabilir Limit' : (account ? 'Güncel Bakiye' : 'Başlangıç Bakiyesi')}
+                                {account ? 'Başlangıç Bakiyesi' : (type === 'Kredi Kartı' ? 'Kullanılabilir Limit' : 'Başlangıç Bakiyesi')}
                             </label>
                             <Input
                                 type="number"
@@ -281,6 +288,13 @@ export function AccountModal({ isOpen, onClose, onSuccess, account }: ModalProps
                             </select>
                         </div>
                     </div>
+
+                    {account && (
+                        <p className="text-xs text-muted-foreground ml-1 -mt-2 leading-relaxed">
+                            Bu hesabın kayıt başlangıcındaki bakiyesi. Girilen hareketlere göre güncel bakiye:{' '}
+                            <span className="font-semibold text-foreground tabular-nums">{formatTL(derivedCurrent)}</span>
+                        </p>
+                    )}
 
                     {(type === "Kredi Kartı" || type === "Esnek Hesap") && (
                         <div className="space-y-4 animate-in slide-in-from-top-2 duration-300">

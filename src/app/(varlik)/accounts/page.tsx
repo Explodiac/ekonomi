@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { supabase, ensureHouseholdExists } from "@/lib/supabase"
 import { Loader2, X, ChevronDown, Settings } from "lucide-react"
 import { AccountModal } from "@/components/accounts/AccountModal"
+import { ReconcileModal } from "@/components/accounts/ReconcileModal"
 import { TransactionList, Transaction } from "@/components/transactions/TransactionList"
 import { TransactionModal } from "@/components/transactions/TransactionModal"
 import { DeleteConfirmModal } from "@/components/ui/DeleteConfirmModal"
@@ -24,6 +25,7 @@ type Account = {
 export default function AccountsPage() {
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [editingAccount, setEditingAccount] = useState<Account | null>(null)
+    const [reconcileAcc, setReconcileAcc] = useState<Account | null>(null)
     const [accounts, setAccounts] = useState<Account[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [expandedAccountId, setExpandedAccountId] = useState<string | null>(null)
@@ -67,7 +69,7 @@ export default function AccountsPage() {
                 .select('account_id, amount, type, transaction_date, cash_date, transfer_direction')
                 .eq('household_id', hhId)
 
-            if (data) setDerivedBalances(deriveAccountBalances(data, txData || []))
+            if (data) setDerivedBalances(deriveAccountBalances(data, txData || [], { warn: false }))
         } catch (error) {
             console.error("Error fetching accounts:", error)
         } finally {
@@ -145,16 +147,7 @@ export default function AccountsPage() {
 
             const { error: deleteError } = await supabase.from('transactions').delete().eq('id', id)
             if (deleteError) throw deleteError
-
-            // Saklanan balance'ı geri al. İşaret kuralı tek yerde: transactionEffect.
-            for (const leg of legs) {
-                if (!leg.account_id) continue
-                const { data: acc } = await supabase.from('accounts').select('balance').eq('id', leg.account_id).single()
-                if (!acc) continue
-                await supabase.from('accounts')
-                    .update({ balance: Number(acc.balance) - transactionEffect(leg) })
-                    .eq('id', leg.account_id)
-            }
+            // accounts.balance yazılmaz — bakiye hareketlerden türetilir; silinen hareket otomatik düşer.
 
             const deletedIds = new Set(legs.map(l => l.id))
             setAccountTransactions(prev => prev.filter(t => !deletedIds.has(t.id)))
@@ -212,6 +205,14 @@ export default function AccountsPage() {
                 onSuccess={() => fetchAccounts()}
             />
 
+            <ReconcileModal
+                isOpen={!!reconcileAcc}
+                account={reconcileAcc}
+                currentBalance={reconcileAcc ? balanceOf(reconcileAcc) : 0}
+                onClose={() => setReconcileAcc(null)}
+                onSuccess={() => { setReconcileAcc(null); fetchAccounts() }}
+            />
+
             <TransactionModal
                 isOpen={isTxModalOpen}
                 onClose={() => { setIsTxModalOpen(false); setEditingTx(null); }}
@@ -267,6 +268,7 @@ export default function AccountsPage() {
                                         onToggle={() => handleToggleAccount(acc.id)}
                                         onEdit={handleEditAcc}
                                         onDelete={handleDeleteAcc}
+                                        onReconcile={() => setReconcileAcc(acc)}
                                         formatCurrency={formatCurrency}
                                         transactions={accountTransactions}
                                         isTxLoading={isTxLoading}
@@ -304,7 +306,7 @@ const ACCOUNT_TYPE_LABEL: Record<string, string> = {
 
 /** Sade hesap satırı — dashboard dili: ad + tür + bakiye (--ink, işaretli), açılır detay. */
 function AccountCard({
-    account, balance, isExpanded, onToggle, onEdit, onDelete, formatCurrency,
+    account, balance, isExpanded, onToggle, onEdit, onDelete, onReconcile, formatCurrency,
     transactions, isTxLoading, onEditTx, onDeleteTx
 }: {
     account: Account,
@@ -313,6 +315,7 @@ function AccountCard({
     onToggle: () => void,
     onEdit: (a: Account) => void,
     onDelete: (id: string, name: string) => void,
+    onReconcile: () => void,
     formatCurrency: (n: number, c: string) => string,
     transactions: Transaction[],
     isTxLoading: boolean,
@@ -351,7 +354,16 @@ function AccountCard({
 
             {isExpanded && (
                 <div className="px-[22px] pb-[22px]" style={{ borderTop: '1px solid var(--border)', paddingTop: 'var(--s4)' }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-3)' }} className="mb-[var(--s3)]">Son işlemler</div>
+                    <div className="mb-[var(--s3)] flex items-center justify-between">
+                        <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-3)' }}>Son işlemler</span>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onReconcile() }}
+                            className="inline-flex items-center gap-[5px] px-[10px] py-[5px] transition-colors"
+                            style={{ background: 'var(--surface-2)', color: 'var(--ink-2)', borderRadius: 'var(--r-pill)', fontSize: 12, fontWeight: 600 }}
+                        >
+                            Bakiye eşitle
+                        </button>
+                    </div>
                     <TransactionList
                         transactions={transactions}
                         isLoading={isTxLoading}
