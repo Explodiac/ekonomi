@@ -189,7 +189,7 @@ function AkisInner() {
                 if (!hhId) return
                 const [txRes, catRes] = await Promise.all([
                     supabase.from('transactions')
-                        .select('amount, type, cash_date, category_id, description, transfer_direction, source_type, categories(name)')
+                        .select('amount, type, transaction_date, cash_date, category_id, description, transfer_direction, source_type, categories(name)')
                         .eq('household_id', hhId),
                     supabase.from('categories').select('id, name, parent_id').eq('household_id', hhId),
                 ])

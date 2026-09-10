@@ -24,11 +24,19 @@ export type InsightTransaction = {
     id?: string
     amount: number | string
     type: string
+    /** Hareketin yapıldığı gün — aylık harcama istatistiğinde esas tarih. */
+    transaction_date?: string | null
+    /** Paranın çıkacağı gün — burada kullanılmaz (yalnız nakit-akışı ekranları). */
     cash_date: string
     category_id?: string | null
     categoryName?: string | null
     source_type?: string | null
     account_id?: string | null
+}
+
+/** Aylık harcama istatistiğinde esas gün: transaction_date, yoksa cash_date. */
+function insDay(t: InsightTransaction): string {
+    return (t.transaction_date || t.cash_date || '').slice(0, 10)
 }
 
 export type InsightAccount = {
@@ -119,10 +127,11 @@ function categoryStats(
 ): Map<string, CategoryStat> {
     const stats = new Map<string, CategoryStat>()
     for (const t of transactions) {
-        if (t.type !== 'expense' || !t.cash_date) continue
+        const day = insDay(t)
+        if (t.type !== 'expense' || !day) continue
         // Abonelik/taksit kaynaklı harcamalar alışkanlık değil yükümlülüktür.
         if (t.source_type) continue
-        if (monthKeyOf(t.cash_date) !== month) continue
+        if (monthKeyOf(day) !== month) continue
 
         const label = t.categoryName || 'Kategorisiz'
         const current = stats.get(label) ?? { total: 0, count: 0 }
@@ -290,9 +299,10 @@ export function ruleInterestIncrease(
 ): Insight | null {
     // Faiz hareketleri source_type='faiz' ile işaretlenir (faiz onay akışı / elle).
     const sumFor = (month: string) => transactions.reduce((s, t) => {
-        if (t.type !== 'expense' || !t.cash_date) return s
+        const day = insDay(t)
+        if (t.type !== 'expense' || !day) return s
         if (t.source_type !== 'faiz') return s
-        if (monthKeyOf(t.cash_date) !== month) return s
+        if (monthKeyOf(day) !== month) return s
         return s + Math.abs(toNumber(t.amount))
     }, 0)
     const now = sumFor(currentMonth)

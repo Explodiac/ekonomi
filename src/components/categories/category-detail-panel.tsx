@@ -365,7 +365,7 @@ function TransactionsCard({ detail, accountById }: { detail: CategoryDetail; acc
     const groups = useMemo(() => {
         const map = new Map<string, CategoryDetailTransaction[]>()
         for (const t of detail.recentTransactions) {
-            const mk = t.cash_date.slice(0, 7)
+            const mk = (t.transaction_date || t.cash_date).slice(0, 7)
             const g = map.get(mk) ?? []
             g.push(t); map.set(mk, g)
         }
@@ -392,8 +392,9 @@ function TransactionsCard({ detail, accountById }: { detail: CategoryDetail; acc
 }
 
 function Row({ t, account }: { t: CategoryDetailTransaction; account?: { name: string; type: string } }) {
-    const day = Number(t.cash_date.slice(8, 10))
-    const monthShort = TR_MONTH_SHORT[Number(t.cash_date.slice(5, 7)) - 1]
+    const shownDate = (t.transaction_date || t.cash_date)
+    const day = Number(shownDate.slice(8, 10))
+    const monthShort = TR_MONTH_SHORT[Number(shownDate.slice(5, 7)) - 1]
     const isIncome = t.type === 'income'
     const isTransfer = t.type === 'transfer'
     const sub = [`${day} ${monthShort}`, shortAccount(account?.name)].filter(Boolean).join(' · ')

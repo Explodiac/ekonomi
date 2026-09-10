@@ -274,12 +274,15 @@ export function buildCategoryDetail(input: CategoryDetailInput): CategoryDetail 
 
     // Parent'ta grup hareketleri (kendi + alt kategoriler); yaprakta yalnız kendi.
     // Gelecek (asOf sonrası, planlı taksit) satırları listede gösterilmez.
+    // Son hareketler listesi harcamanın YAPILDIĞI güne göre (transaction_date);
+    // kart harcaması gelecek cash_date'iyle listeden düşmez. cash_date tie-breaker.
+    const txDay = (t: CategoryDetailTransaction) => (t.transaction_date || t.cash_date || '').slice(0, 10)
     const catSet = new Set<string>([categoryId, ...childCats.map(c => c.id)])
     const recentTransactions = transactions
-        .filter(t => t.category_id && catSet.has(t.category_id) && t.cash_date && t.cash_date <= asOf)
+        .filter(t => t.category_id && catSet.has(t.category_id) && txDay(t) && txDay(t) <= asOf)
         .sort((a, b) =>
-            b.cash_date.localeCompare(a.cash_date) ||
-            String(b.transaction_date ?? '').localeCompare(String(a.transaction_date ?? '')))
+            txDay(b).localeCompare(txDay(a)) ||
+            String(b.cash_date ?? '').localeCompare(String(a.cash_date ?? '')))
         .slice(0, recentLimit)
 
     return {

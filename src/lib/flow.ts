@@ -12,6 +12,9 @@
 export type FlowTransaction = {
     amount: number | string
     type: string
+    /** Hareketin yapıldığı gün — gelir/gider akışında esas tarih. */
+    transaction_date?: string | null
+    /** Paranın çıkacağı gün — akış özetinde kullanılmaz (yalnız nakit-akışı ekranlarında). */
     cash_date: string
     category_id?: string | null
     categoryName?: string | null
@@ -19,6 +22,15 @@ export type FlowTransaction = {
     transfer_direction?: string | null
     /** Abonelik/taksit kaynağı; splitRecurring için. */
     source_type?: string | null
+}
+
+/**
+ * Akış/özet hesaplarında esas alınan gün: transaction_date (hareketin yapıldığı
+ * gün), yoksa cash_date. Kart harcaması yapıldığı ay gösterilir; son ödeme günü
+ * (cash_date) gelecekte olsa bile. 'YYYY-MM-DD'.
+ */
+function flowDay(t: FlowTransaction): string {
+    return (t.transaction_date || t.cash_date || '').slice(0, 10)
 }
 
 export type FlowBreakdown = {
@@ -93,11 +105,12 @@ export function buildFlow(
     const buckets = new Map<string, Acc>()
 
     for (const t of transactions) {
-        if (!t.cash_date || t.cash_date > asOf) continue
+        const day = flowDay(t)
+        if (!day || day > asOf) continue
         if (t.type === 'transfer' || t.transfer_direction) continue // net'e girmez
         if (t.type !== 'income' && t.type !== 'expense') continue
 
-        const key = periodKeyOf(t.cash_date, granularity)
+        const key = periodKeyOf(day, granularity)
         let acc = buckets.get(key)
         if (!acc) {
             acc = { inflow: 0, outflow: 0, categories: new Map(), incomes: new Map() }
@@ -220,12 +233,13 @@ export function buildCashflowPeriod(input: {
     const catMap = new Map<string, { label: string; amount: number; monthly: number[] }>()
 
     for (const t of input.transactions) {
-        if (!t.cash_date || t.cash_date < from || t.cash_date > to) continue
-        if (t.cash_date > asOf) continue // gerçekleşmemiş → toplamlara girmez
+        const day = flowDay(t)
+        if (!day || day < from || day > to) continue
+        if (day > asOf) continue // gerçekleşmemiş → toplamlara girmez
         if (t.type === 'transfer' || t.transfer_direction) continue
         if (t.type !== 'income' && t.type !== 'expense') continue
 
-        const mk = t.cash_date.slice(0, 7)
+        const mk = day.slice(0, 7)
         const mi = monthIndex.get(mk)
         if (mi === undefined) continue
         const amount = Math.abs(toNumber(t.amount))

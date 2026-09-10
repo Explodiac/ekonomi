@@ -51,7 +51,7 @@ export default function KategorilerPage() {
             if (!id) return
             const [catRes, txRes, bpRes, hhRes] = await Promise.all([
                 supabase.from('categories').select('id, name, type, parent_id').eq('household_id', id).order('name'),
-                supabase.from('transactions').select('amount, type, cash_date, category_id, source_type, transfer_direction').eq('household_id', id),
+                supabase.from('transactions').select('amount, type, transaction_date, cash_date, category_id, source_type, transfer_direction').eq('household_id', id),
                 supabase.from('budget_periods').select('category_id, period, budgeted').eq('household_id', id),
                 supabase.from('households').select('negative_carry').eq('id', id).single(),
             ])
@@ -98,8 +98,10 @@ export default function KategorilerPage() {
         const m = new Map<string, number>()
         const asOf = todayStr()
         for (const t of transactions) {
-            if (t.type !== 'expense' || !t.cash_date || t.cash_date > asOf) continue
-            if (t.cash_date.slice(0, 7) !== currentMonth || !t.category_id) continue
+            // Kategori harcaması: hareketin yapıldığı gün (transaction_date) esas.
+            const day = ((t as any).transaction_date || t.cash_date || '').slice(0, 10)
+            if (t.type !== 'expense' || !day || day > asOf) continue
+            if (day.slice(0, 7) !== currentMonth || !t.category_id) continue
             m.set(t.category_id, (m.get(t.category_id) ?? 0) + Math.abs(Number(t.amount)))
         }
         return m

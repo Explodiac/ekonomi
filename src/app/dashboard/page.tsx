@@ -39,6 +39,7 @@ type Row = {
     id: string
     amount: number
     type: string
+    transaction_date?: string | null
     cash_date: string
     description?: string | null
     categoryName?: string | null
@@ -331,11 +332,15 @@ export default function DashboardPage() {
         return { relief, goalName: goal.name }
     }, [upcoming, goals])
 
+    // Son hareketler: yapıldığı güne göre (transaction_date), kart harcaması dahil.
     const recent = useMemo(
-        () => [...transactions]
-            .filter(t => t.cash_date && t.cash_date <= today() && t.type !== 'transfer')
-            .sort((a, b) => b.cash_date.localeCompare(a.cash_date))
-            .slice(0, 8),
+        () => {
+            const day = (t: Row) => (t.transaction_date || t.cash_date || '').slice(0, 10)
+            return [...transactions]
+                .filter(t => day(t) && day(t) <= today() && t.type !== 'transfer')
+                .sort((a, b) => day(b).localeCompare(day(a)))
+                .slice(0, 8)
+        },
         [transactions]
     )
 
@@ -373,10 +378,12 @@ export default function DashboardPage() {
         const dailySpent = new Array(daysInMonth).fill(0)
         const asOf = today()
         for (const t of transactions) {
-            if (t.type !== 'expense' || !t.cash_date) continue
-            if (t.cash_date.slice(0, 7) !== currentMonthKey || t.cash_date > asOf) continue
+            // Bu ay harcama temposu: hareketin yapıldığı gün (transaction_date) esas.
+            const d = (t.transaction_date || t.cash_date || '').slice(0, 10)
+            if (t.type !== 'expense' || !d) continue
+            if (d.slice(0, 7) !== currentMonthKey || d > asOf) continue
             if (!t.category_id || !budgeted.has(t.category_id)) continue
-            const day = Number(t.cash_date.slice(8, 10))
+            const day = Number(d.slice(8, 10))
             if (day >= 1 && day <= daysInMonth) dailySpent[day - 1] += Math.abs(Number(t.amount))
         }
 

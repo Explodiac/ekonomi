@@ -12,12 +12,20 @@
 export type EstimateTransaction = {
     amount: number | string
     type: string
+    /** Hareketin yapıldığı gün — harcama ortalamasında esas tarih. */
+    transaction_date?: string | null
+    /** Paranın çıkacağı gün — burada kullanılmaz (yalnız nakit-akışı ekranları). */
     cash_date: string
     category_id?: string | null
     categoryName?: string | null
     source_type?: string | null
     /** Harcama doğası: 'tek_seferlik' ortalamaya GİRMEZ; 'aliskanlik'/null girer. */
     spend_nature?: string | null
+}
+
+/** Ortalama harcama gününde esas alınan gün: transaction_date, yoksa cash_date. */
+function estDay(t: EstimateTransaction): string {
+    return (t.transaction_date || t.cash_date || '').slice(0, 10)
 }
 
 export type CategoryEstimate = {
@@ -85,11 +93,12 @@ export function estimateCategory(
     let label = ''
 
     for (const t of transactions) {
-        if (t.type !== 'expense' || !t.cash_date) continue
+        const day = estDay(t)
+        if (t.type !== 'expense' || !day) continue
         if (t.source_type) continue
         if (t.spend_nature === 'tek_seferlik') continue
         if (t.category_id !== categoryId) continue
-        const month = monthKeyOf(t.cash_date)
+        const month = monthKeyOf(day)
         if (!basis.has(month)) continue
 
         monthTotals.set(month, (monthTotals.get(month) ?? 0) + Math.abs(toNumber(t.amount)))
@@ -142,12 +151,13 @@ export function projectMonthEnd(
 
     let soFar = 0
     for (const t of transactions) {
-        if (t.type !== 'expense' || !t.cash_date) continue
+        const day = estDay(t)
+        if (t.type !== 'expense' || !day) continue
         if (t.source_type) continue
         if (t.spend_nature === 'tek_seferlik') continue
         if (t.category_id !== categoryId) continue
-        if (monthKeyOf(t.cash_date) !== currentMonth) continue
-        if (t.cash_date > asOf) continue
+        if (monthKeyOf(day) !== currentMonth) continue
+        if (day > asOf) continue
         soFar += Math.abs(toNumber(t.amount))
     }
 
@@ -188,11 +198,12 @@ export function detectEndedSeries(
 
     const byCat = new Map<string, { label: string; months: Set<string> }>()
     for (const t of transactions) {
-        if (t.type !== 'expense' || !t.cash_date) continue
+        const day = estDay(t)
+        if (t.type !== 'expense' || !day) continue
         if (t.source_type) continue
         if (t.spend_nature === 'tek_seferlik') continue
         if (!t.category_id) continue
-        const mk = monthKeyOf(t.cash_date)
+        const mk = monthKeyOf(day)
         if (mk >= currentMonth) continue // yalnız tamamlanmış geçmiş aylar
         let c = byCat.get(t.category_id)
         if (!c) { c = { label: t.categoryName || 'Kategori', months: new Set() }; byCat.set(t.category_id, c) }

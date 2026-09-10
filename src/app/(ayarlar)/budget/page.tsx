@@ -42,7 +42,7 @@ export default function BudgetPage() {
             setHhId(id)
             const [catRes, txRes, bpRes, hhRes] = await Promise.all([
                 supabase.from('categories').select('id, name, type, parent_id').eq('household_id', id).order('name'),
-                supabase.from('transactions').select('amount, type, cash_date, category_id, source_type, transfer_direction').eq('household_id', id),
+                supabase.from('transactions').select('amount, type, transaction_date, cash_date, category_id, source_type, transfer_direction').eq('household_id', id),
                 supabase.from('budget_periods').select('category_id, period, budgeted').eq('household_id', id),
                 supabase.from('households').select('negative_carry').eq('id', id).single(),
             ])

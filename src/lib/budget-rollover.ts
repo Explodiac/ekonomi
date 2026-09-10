@@ -28,9 +28,17 @@ export type BudgetPeriodInput = {
 export type RolloverTransaction = {
     amount: number | string
     type: string
+    /** Hareketin yapıldığı gün — bütçe harcamasında esas tarih. */
+    transaction_date?: string | null
+    /** Paranın çıkacağı gün — bütçede kullanılmaz (yalnız nakit-akışı ekranları). */
     cash_date: string
     category_id?: string | null
     source_type?: string | null
+}
+
+/** Bütçe harcamasında esas gün: transaction_date, yoksa cash_date. 'YYYY-MM-DD'. */
+function spendDay(t: RolloverTransaction): string {
+    return (t.transaction_date || t.cash_date || '').slice(0, 10)
 }
 
 export type PeriodStatus = 'past' | 'current' | 'future'
@@ -94,10 +102,11 @@ export function computeBudgetRollover(
     // asOf sınırı: geçmiş tam, bu ay canlı, gelecek 0.
     const spent = new Map<string, Map<string, number>>()
     for (const t of transactions) {
-        if (t.type !== 'expense' || !t.cash_date) continue
+        const day = spendDay(t)
+        if (t.type !== 'expense' || !day) continue
         if (!t.category_id) continue
-        if (t.cash_date > asOf) continue
-        const month = monthKeyOf(t.cash_date)
+        if (day > asOf) continue
+        const month = monthKeyOf(day)
         let byMonth = spent.get(t.category_id)
         if (!byMonth) { byMonth = new Map(); spent.set(t.category_id, byMonth) }
         byMonth.set(month, (byMonth.get(month) ?? 0) + Math.abs(toNumber(t.amount)))
@@ -208,14 +217,15 @@ export function safeParent(cat: BudgetCategoryMeta, byId: Map<string, BudgetCate
     return p
 }
 
-/** Bir aydaki kategori bazlı harcanan (budget spent ile aynı evren: tüm gider, cash_date<=asOf). */
+/** Bir aydaki kategori bazlı harcanan (budget spent ile aynı evren: tüm gider, transaction_date<=asOf). */
 function spentByCategory(transactions: RolloverTransaction[], month: string, asOf: string): Map<string, number> {
     const m = new Map<string, number>()
     for (const t of transactions) {
-        if (t.type !== 'expense' || !t.cash_date) continue
+        const day = spendDay(t)
+        if (t.type !== 'expense' || !day) continue
         if (!t.category_id) continue
-        if (t.cash_date > asOf) continue
-        if (monthKeyOf(t.cash_date) !== month) continue
+        if (day > asOf) continue
+        if (monthKeyOf(day) !== month) continue
         m.set(t.category_id, round2((m.get(t.category_id) ?? 0) + Math.abs(toNumber(t.amount))))
     }
     return m
