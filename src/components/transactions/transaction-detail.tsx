@@ -45,6 +45,7 @@ type Tx = {
     source_type?: string | null
     spend_nature?: string | null
     transfer_group_id?: string | null
+    transfer_direction?: string | null
 }
 
 export function TransactionDetail({ tx, accounts, categories, allTxs, onChanged, onClose }: {
@@ -70,6 +71,18 @@ export function TransactionDetail({ tx, accounts, categories, allTxs, onChanged,
         ? (tx.description || '').replace(/\s*\d+\s*\/\s*\d+\s*$/, '').trim() || 'Düzenli'
         : null
 
+    // Transfer: karşı hesabı + yönü göster ("Garanti - Banka → Halkbank Paraf").
+    const transferLabel = useMemo(() => {
+        if (!isTransfer || !tx.transfer_group_id) return null
+        const legs = allTxs.filter(t => t.transfer_group_id === tx.transfer_group_id)
+        const outAcc = legs.find(l => l.transfer_direction !== 'in')?.account_id
+        const inAcc = legs.find(l => l.transfer_direction === 'in')?.account_id
+        const from = outAcc ? accounts.find(a => a.id === outAcc)?.name : undefined
+        const to = inAcc ? accounts.find(a => a.id === inAcc)?.name : undefined
+        if (!from && !to) return null
+        return `${from ?? '—'} → ${to ?? '—'}`
+    }, [isTransfer, tx.transfer_group_id, allTxs, accounts])
+
     // Kart harcamasında nakit çıkışı ileri tarihe sarkıyorsa not.
     const txDay = tx.transaction_date?.slice(0, 10)
     const cardDefer = account?.type === 'credit_card' && tx.cash_date && txDay && tx.cash_date > txDay
@@ -77,10 +90,11 @@ export function TransactionDetail({ tx, accounts, categories, allTxs, onChanged,
     const similar = useMemo(() => {
         const pool: SimilarTx[] = allTxs.map(t => ({
             id: t.id, description: t.description, category_id: t.category_id,
-            categoryName: t.categoryName, amount: t.amount, type: t.type, cash_date: t.cash_date,
+            categoryName: t.categoryName, amount: t.amount, type: t.type,
+            cash_date: t.cash_date, transaction_date: t.transaction_date,
         }))
         return findSimilar(
-            { id: tx.id, description: tx.description, category_id: tx.category_id, amount: tx.amount, type: tx.type, cash_date: tx.cash_date },
+            { id: tx.id, description: tx.description, category_id: tx.category_id, amount: tx.amount, type: tx.type, cash_date: tx.cash_date, transaction_date: tx.transaction_date },
             pool, { asOf: todayISO() }
         )
     }, [tx, allTxs])
@@ -160,16 +174,17 @@ export function TransactionDetail({ tx, accounts, categories, allTxs, onChanged,
                 <button onClick={onClose} aria-label="Kapat" className="lg:hidden"><ChevronDown className="h-[18px] w-[18px]" style={{ color: 'var(--ink-3)' }} /></button>
             </div>
 
-            {/* Tarih */}
+            {/* Tarih — hareketin YAPILDIĞI gün (transaction_date). Kart harcamasında
+                paranın çıkacağı gün aşağıda ayrı satırda ("… çıkacak"). */}
             <div className="flex items-center gap-[var(--s2)]" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
                 <Calendar className="h-[14px] w-[14px]" />
-                {longDate(tx.cash_date)}
+                {longDate(txDay || tx.cash_date)}
             </div>
 
             {/* Açıklama + tutar */}
             <div className="mt-[var(--s2)] flex items-start justify-between gap-[var(--s3)]">
                 <h2 className="min-w-0" style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--ink)' }}>
-                    {tx.description || catName || 'Hareket'}
+                    {transferLabel || tx.description || catName || (isTransfer ? 'Transfer' : 'Hareket')}
                 </h2>
                 <span className="tnum shrink-0" style={{ fontSize: 22, fontWeight: 600, color: isTransfer ? 'var(--ink-3)' : 'var(--ink)' }}>
                     {tx.type === 'income' ? '+' : ''}{formatTL(Number(tx.amount))}
@@ -282,7 +297,7 @@ export function TransactionDetail({ tx, accounts, categories, allTxs, onChanged,
                                     {month.items.map(it => (
                                         <li key={it.id} className="flex items-center justify-between gap-[var(--s2)]">
                                             <span className="min-w-0 truncate" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                                                {shortDate(it.cash_date)} · {it.description || it.categoryName || 'Hareket'}
+                                                {shortDate((it.transaction_date || it.cash_date || '').slice(0, 10))} · {it.description || it.categoryName || 'Hareket'}
                                             </span>
                                             <span className="tnum shrink-0" style={{ fontSize: 13, color: 'var(--ink-2)' }}>{formatTL(Number(it.amount))}</span>
                                         </li>

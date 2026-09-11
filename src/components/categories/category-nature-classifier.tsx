@@ -50,15 +50,17 @@ export function CategoryNatureClassifier({ onChanged }: { onChanged?: () => void
             setHhId(id)
             const [catRes, txRes] = await Promise.all([
                 supabase.from('categories').select('id, name, type, default_nature').eq('household_id', id),
-                supabase.from('transactions').select('amount, type, cash_date, category_id, source_type').eq('household_id', id).eq('type', 'expense').is('source_type', null),
+                supabase.from('transactions').select('amount, type, transaction_date, cash_date, category_id, source_type').eq('household_id', id).eq('type', 'expense').is('source_type', null),
             ])
             const cm = todayStr().slice(0, 7)
             const months6 = [6, 5, 4, 3, 2, 1].map(i => shiftMonth(cm, -i)) // eskiden yeniye
             const in6 = new Set(months6)
             const perCat = new Map<string, Map<string, number>>()
             for (const t of txRes.data || []) {
-                if (!t.category_id || !t.cash_date) continue
-                const mk = t.cash_date.slice(0, 7)
+                // Kategori aylık ortalaması: hareketin yapıldığı ay (transaction_date).
+                const day = ((t as any).transaction_date || t.cash_date || '').slice(0, 10)
+                if (!t.category_id || !day) continue
+                const mk = day.slice(0, 7)
                 if (!in6.has(mk)) continue
                 let m = perCat.get(t.category_id)
                 if (!m) { m = new Map(); perCat.set(t.category_id, m) }

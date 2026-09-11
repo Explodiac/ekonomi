@@ -50,7 +50,7 @@ export function RecurringSuggestions({ onAdded }: { onAdded?: () => void }) {
 
                 const [txRes, subRes, disRes] = await Promise.all([
                     supabase.from('transactions')
-                        .select('id, amount, type, cash_date, description, category_id, source_type, transfer_direction, categories(name)')
+                        .select('id, amount, type, transaction_date, cash_date, description, category_id, source_type, transfer_direction, categories(name)')
                         .eq('household_id', id).is('source_type', null),
                     supabase.from('subscriptions').select('name').eq('household_id', id),
                     supabase.from('dismissed_recurring').select('fingerprint').eq('household_id', id),

@@ -12,6 +12,11 @@
  * Hiç benzer yoksa boş dizi → çağıran blok göstermez.
  */
 
+/** Benzer hareket listesinde esas gün: transaction_date, yoksa cash_date. */
+function simDate(t: { transaction_date?: string | null; cash_date?: string | null }): string {
+    return (t.transaction_date || t.cash_date || '').slice(0, 10)
+}
+
 export type SimilarTx = {
     id: string
     description?: string | null
@@ -19,7 +24,8 @@ export type SimilarTx = {
     categoryName?: string | null
     amount: number | string
     type?: string | null
-    cash_date: string
+    cash_date?: string | null
+    transaction_date?: string | null
 }
 
 export type SimilarMonth = {
@@ -71,8 +77,8 @@ export function findSimilar(
         t.id !== target.id &&
         t.type !== 'transfer' &&
         (t.type ?? 'expense') === targetType &&
-        t.cash_date && t.cash_date <= options.asOf &&
-        t.cash_date.slice(0, 7) >= oldestMonth
+        simDate(t) && simDate(t) <= options.asOf &&
+        simDate(t).slice(0, 7) >= oldestMonth
     )
 
     // 1) Açıklama eşleşmesi
@@ -93,7 +99,7 @@ export function findSimilar(
     // Aya göre grupla
     const byMonth = new Map<string, SimilarMonth>()
     for (const t of matches) {
-        const mk = t.cash_date.slice(0, 7)
+        const mk = simDate(t).slice(0, 7)
         let g = byMonth.get(mk)
         if (!g) { g = { month: mk, total: 0, items: [] }; byMonth.set(mk, g) }
         g.total = round2(g.total + Math.abs(toNumber(t.amount)))
@@ -101,6 +107,6 @@ export function findSimilar(
     }
 
     return [...byMonth.values()]
-        .map(g => ({ ...g, items: g.items.sort((a, b) => b.cash_date.localeCompare(a.cash_date)) }))
+        .map(g => ({ ...g, items: g.items.sort((a, b) => simDate(b).localeCompare(simDate(a))) }))
         .sort((a, b) => b.month.localeCompare(a.month))
 }

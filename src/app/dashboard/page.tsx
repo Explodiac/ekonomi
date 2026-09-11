@@ -48,6 +48,7 @@ type Row = {
     source_id?: string | null
     account_id: string | null
     transfer_direction?: string | null
+    transfer_group_id?: string | null
 }
 
 type Goal = {
@@ -98,7 +99,7 @@ export default function DashboardPage() {
                     .select('id, name, type, balance, opening_balance, credit_limit, interest_rate, cut_date')
                     .eq('household_id', hhId),
                 supabase.from('transactions')
-                    .select('id, account_id, category_id, amount, type, transaction_date, cash_date, description, source_type, spend_nature, source_id, transfer_direction, categories(name)')
+                    .select('id, account_id, category_id, amount, type, transaction_date, cash_date, description, source_type, spend_nature, source_id, transfer_direction, transfer_group_id, categories(name)')
                     .eq('household_id', hhId),
                 supabase.from('subscriptions')
                     .select('id, name, amount, frequency, next_payment_date, status, end_date')
@@ -477,7 +478,7 @@ export default function DashboardPage() {
                                     interestPending={pendingInterest} onOpenInterest={() => setInterestModalOpen(true)} />
                             </div>
                         )}
-                        <div className="order-8 lg:order-none"><RecentCard rows={recent} accountById={accountById} /></div>
+                        <div className="order-8 lg:order-none"><RecentCard rows={recent} accountById={accountById} allRows={transactions} /></div>
                         <div className="order-5 lg:order-none"><NetCard flow={flowCurrent} prevNet={flowPrevNet} /></div>
                     </div>
                     {/* SAĞ KOLON */}
@@ -1229,14 +1230,34 @@ function dayLabel(cashDate: string, todayStr: string): string {
  * görsel ayrımlı (--ink başlık + accent nokta), eskiler --ink-3. İkon kategori
  * renginde, rakam yön rengi taşır (giren --flow-in, çıkan --ink); zemin nötr.
  */
-function RecentCard({ rows, accountById }: { rows: Row[]; accountById: Map<string, { name: string; type: string }> }) {
+function RecentCard({ rows, accountById, allRows }: { rows: Row[]; accountById: Map<string, { name: string; type: string }>; allRows: Row[] }) {
     const todayStr = today()
-    // Ardışık aynı-gün satırları grupla (rows zaten tarihe göre azalan sıralı).
+    // Transfer grubu → çıkış/giriş hesabı ("A → B" etiketi için); tüm hareketlerden.
+    const transferPeer = new Map<string, { out?: string | null; in?: string | null }>()
+    for (const t of allRows) {
+        if (t.type !== 'transfer' || !t.transfer_group_id) continue
+        const g = transferPeer.get(t.transfer_group_id) ?? {}
+        if (t.transfer_direction === 'in') g.in = t.account_id; else g.out = t.account_id
+        transferPeer.set(t.transfer_group_id, g)
+    }
+    const transferLabel = (t: Row): string | null => {
+        if (t.type !== 'transfer' || !t.transfer_group_id) return null
+        const g = transferPeer.get(t.transfer_group_id)
+        const from = g?.out ? accountById.get(g.out)?.name : undefined
+        const to = g?.in ? accountById.get(g.in)?.name : undefined
+        if (!from && !to) return null
+        return `${from ?? '—'} → ${to ?? '—'}`
+    }
+    // Gruplama/sıralama/etiket hepsi transaction_date (hareketin yapıldığı gün);
+    // kart harcaması gelecek cash_date'iyle yanlış güne/gruba düşmez. rows zaten
+    // transaction_date'e göre azalan sıralı geldiği için ardışık gruplama tutarlı.
+    const rowDay = (r: Row) => (r.transaction_date || r.cash_date || '').slice(0, 10)
     const groups: { date: string; rows: Row[] }[] = []
     for (const row of rows) {
+        const key = rowDay(row)
         const last = groups[groups.length - 1]
-        if (last && last.date === row.cash_date) last.rows.push(row)
-        else groups.push({ date: row.cash_date, rows: [row] })
+        if (last && last.date === key) last.rows.push(row)
+        else groups.push({ date: key, rows: [row] })
     }
 
     return (
@@ -1267,8 +1288,9 @@ function RecentCard({ rows, accountById }: { rows: Row[]; accountById: Map<strin
                                 // Başlık = açıklama; boşsa kategori adına düş. Sol ikon HESABI,
                                 // kategori kimliği sağdaki pill'de (renk tek yerde).
                                 const acc = row.account_id ? accountById.get(row.account_id) : undefined
-                                const title = row.description || row.categoryName || 'Hareket'
-                                const accShort = shortAccount(acc?.name)
+                                const tLabel = transferLabel(row)
+                                const title = tLabel || row.description || row.categoryName || 'Hareket'
+                                const accShort = tLabel ? '' : shortAccount(acc?.name)
                                 return (
                                     <li key={row.id} className="flex items-center gap-[var(--s3)] px-[22px] py-[10px]">
                                         <AccountIcon type={acc?.type} />

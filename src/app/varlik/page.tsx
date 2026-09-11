@@ -583,10 +583,12 @@ function DetailPanel(props: any) {
         let paidThisYear = 0
         for (const t of txs as Tx[]) {
             if (t.account_id !== account.id || t.source_type !== 'faiz' || t.type !== 'expense') continue
-            if (!t.cash_date || t.cash_date > todayISO) continue
+            // Faiz "işletildiği" ay esas (transaction_date), ödendiği gün değil.
+            const d = (t.transaction_date || t.cash_date || '').slice(0, 10)
+            if (!d || d > todayISO) continue
             const amt = Math.abs(Number(t.amount))
-            if (t.cash_date.slice(0, 4) === year) paidThisYear += amt
-            const slot = months.find(x => x.month === t.cash_date.slice(0, 7))
+            if (d.slice(0, 4) === year) paidThisYear += amt
+            const slot = months.find(x => x.month === d.slice(0, 7))
             if (slot) slot.amount += amt
         }
         return paidThisYear > 0 ? { paidThisYear, months } : null

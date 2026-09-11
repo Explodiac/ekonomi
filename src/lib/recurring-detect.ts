@@ -19,11 +19,17 @@ export type RecurringTransaction = {
     id: string
     amount: number | string
     type: string
-    cash_date: string
+    transaction_date?: string | null
+    cash_date?: string | null
     description?: string | null
     category_id?: string | null
     categoryName?: string | null
     source_type?: string | null
+}
+
+/** Tekrar tespitinde esas gün: transaction_date (charge günü), yoksa cash_date. */
+function recDate(t: RecurringTransaction): string {
+    return (t.transaction_date || t.cash_date || '').slice(0, 10)
 }
 
 export type Cadence = 'aylik' | 'yillik'
@@ -91,7 +97,7 @@ export function detectRecurring(
     // Gruplama: aynı açıklama + kategori. Açıklama yoksa yalnız kategori.
     const groups = new Map<string, Group>()
     for (const t of transactions) {
-        if (t.type !== 'expense' || !t.cash_date) continue
+        if (t.type !== 'expense' || !recDate(t)) continue
         if (t.source_type) continue
         const desc = normalize(t.description)
         const key = desc ? `${desc}|${t.category_id ?? ''}` : `__cat__${t.category_id ?? 'none'}`
@@ -106,7 +112,7 @@ export function detectRecurring(
     for (const g of groups.values()) {
         if (g.txs.length < MIN_OCCURRENCES) continue
 
-        const sorted = [...g.txs].sort((a, b) => a.cash_date.localeCompare(b.cash_date))
+        const sorted = [...g.txs].sort((a, b) => recDate(a).localeCompare(recDate(b)))
         const amounts = sorted.map(t => Math.abs(toNumber(t.amount)))
         const mean = amounts.reduce((s, v) => s + v, 0) / amounts.length
 
@@ -116,14 +122,14 @@ export function detectRecurring(
 
         // Ritim: ardışık aralıkların HEPSİ ya aylık ya yıllık bandında olmalı.
         const gaps: number[] = []
-        for (let i = 1; i < sorted.length; i++) gaps.push(dayDiff(sorted[i].cash_date, sorted[i - 1].cash_date))
+        for (let i = 1; i < sorted.length; i++) gaps.push(dayDiff(recDate(sorted[i]), recDate(sorted[i - 1])))
         const allMonthly = gaps.every(gp => gp >= MONTH_MIN && gp <= MONTH_MAX)
         const allYearly = gaps.every(gp => gp >= YEAR_MIN && gp <= YEAR_MAX)
         const cadence: Cadence | null = allMonthly ? 'aylik' : allYearly ? 'yillik' : null
         if (!cadence) continue
 
         // Tazelik: son örnek 4 ay içinde olmalı.
-        const lastSeen = sorted[sorted.length - 1].cash_date
+        const lastSeen = recDate(sorted[sorted.length - 1])
         if (lastSeen < cutoff) continue
 
         // Etiket: gruptaki en sık boş-olmayan açıklama; yoksa kategori adı.
@@ -142,7 +148,7 @@ export function detectRecurring(
             categoryId: sorted[0].category_id ?? null,
             avgAmount: round2(mean),
             cadence,
-            dayOfMonth: Math.round(median(sorted.map(t => Number(t.cash_date.slice(8, 10))))),
+            dayOfMonth: Math.round(median(sorted.map(t => Number(recDate(t).slice(8, 10))))),
             occurrenceCount: sorted.length,
             lastSeen,
             sampleTransactionIds: sorted.map(t => t.id),

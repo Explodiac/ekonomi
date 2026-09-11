@@ -135,6 +135,29 @@ function HareketlerInner() {
         [accounts]
     )
 
+    // Transfer grubu → { çıkış hesabı, giriş hesabı } — satırda "A → B" göstermek için.
+    const transferPeer = useMemo(() => {
+        const m = new Map<string, { out?: string | null; in?: string | null }>()
+        for (const t of txs) {
+            if (t.type !== 'transfer' || !t.transfer_group_id) continue
+            const g = m.get(t.transfer_group_id) ?? {}
+            if (t.transfer_direction === 'in') g.in = t.account_id
+            else g.out = t.account_id
+            m.set(t.transfer_group_id, g)
+        }
+        return m
+    }, [txs])
+
+    // Transfer satırı etiketi: "Garanti - Banka → Halkbank Paraf" (karşı hesap + yön).
+    const transferLabel = (t: Tx): string | null => {
+        if (t.type !== 'transfer' || !t.transfer_group_id) return null
+        const g = transferPeer.get(t.transfer_group_id)
+        const fromName = g?.out ? accountById.get(g.out)?.name : undefined
+        const toName = g?.in ? accountById.get(g.in)?.name : undefined
+        if (!fromName && !toName) return null
+        return `${fromName ?? '—'} → ${toName ?? '—'}`
+    }
+
     // Hareketler listesi harcamanın YAPILDIĞI günü (transaction_date) esas alır,
     // paranın çıkacağı günü (cash_date) DEĞİL. Kart harcamalarının cash_date'i
     // gelecek aya düştüğü için cash_date'le süzülünce bu ayın listesinde hiç
@@ -214,6 +237,7 @@ function HareketlerInner() {
                     <Row
                         key={t.id} t={t}
                         account={t.account_id ? accountById.get(t.account_id) : undefined}
+                        transferLabel={transferLabel(t)}
                         selected={t.id === selectedId}
                         onSelect={() => setSelectedId(t.id)}
                         faded={faded}
@@ -405,15 +429,18 @@ function RecurringBadge() {
 
 /** Liste satırı: [hesap ikonu] [R] Açıklama · hesap — [PILL] — tutar. Seçili: --surface-2 + accent kenar.
  *  faded: gelecek planlı satır (soluk). */
-function Row({ t, account, selected, onSelect, faded }: {
+function Row({ t, account, transferLabel, selected, onSelect, faded }: {
     t: Tx
     account?: { name: string; type: string }
+    transferLabel?: string | null
     selected: boolean
     onSelect: () => void
     faded?: boolean
 }) {
     const isTransfer = t.type === 'transfer'
-    const accShort = shortAccount(account?.name)
+    // Transferde başlık karşı hesabı + yönü gösterir; kendi hesap etiketi tekrar edilmez.
+    const accShort = isTransfer ? '' : shortAccount(account?.name)
+    const title = isTransfer ? (transferLabel || t.description || 'Transfer') : (t.description || t.categoryName || 'Hareket')
     return (
         <li>
             <button
@@ -428,8 +455,8 @@ function Row({ t, account, selected, onSelect, faded }: {
                 <AccountIcon type={account?.type} />
                 <div className="flex min-w-0 flex-1 items-center gap-[var(--s2)]">
                     {t.source_type && <RecurringBadge />}
-                    <span className="shrink-0 truncate" style={{ fontSize: 14.5, color: 'var(--ink)', maxWidth: '60%' }}>
-                        {t.description || t.categoryName || 'Hareket'}
+                    <span className="shrink-0 truncate" style={{ fontSize: 14.5, color: 'var(--ink)', maxWidth: isTransfer ? '85%' : '60%' }}>
+                        {title}
                     </span>
                     {accShort && <span className="truncate" style={{ fontSize: 13, color: 'var(--ink-3)' }}>{accShort}</span>}
                 </div>
