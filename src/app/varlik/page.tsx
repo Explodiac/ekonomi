@@ -10,6 +10,7 @@ import { Segmented } from "@/components/ui/segmented"
 import { DeltaChip } from "@/components/ui/delta-chip"
 import { AccountIcon } from "@/components/dashboard/account-icon"
 import { AccountModal } from "@/components/accounts/AccountModal"
+import { ReconcileModal } from "@/components/accounts/ReconcileModal"
 import { LoanModal } from "@/components/loans/LoanModal"
 import { DeleteConfirmModal } from "@/components/ui/DeleteConfirmModal"
 import { accountBalanceSeries, deriveAccountBalances, transactionEffect, today } from "@/lib/balance"
@@ -156,6 +157,7 @@ export default function VarlikPage() {
     const [accountModalOpen, setAccountModalOpen] = useState(false)
     const [editingAccount, setEditingAccount] = useState<Account | null>(null)
     const [loanModalOpen, setLoanModalOpen] = useState(false)
+    const [reconcileAcc, setReconcileAcc] = useState<Account | null>(null)
     const [deleteOpen, setDeleteOpen] = useState(false)
     const [deleteTarget, setDeleteTarget] = useState<{ table: string; id: string; label: string } | null>(null)
     const [isDeleting, setIsDeleting] = useState(false)
@@ -315,6 +317,10 @@ export default function VarlikPage() {
             setLoanModalOpen(true)
         }
     }
+    const requestReconcile = () => {
+        if (!selected || (selected.kind !== 'card' && selected.kind !== 'account')) return
+        setReconcileAcc(accounts.find(a => a.id === selected.id) || null)
+    }
 
     if (isLoading) {
         return (
@@ -471,7 +477,7 @@ export default function VarlikPage() {
                                 invEnriched={invEnriched} txs={txs} installments={installments} subscriptions={subscriptions}
                                 goals={goals} goalSaved={goalSaved} bal={bal} range={range} setRange={setRange}
                                 todayISO={todayISO} earliestTx={earliestTx} rates={rates}
-                                onEdit={requestEdit} onDelete={requestDelete} loanInfo={loanInfo}
+                                onEdit={requestEdit} onDelete={requestDelete} onReconcile={requestReconcile} loanInfo={loanInfo}
                             />
                         ) : (
                             <div className="rounded-[var(--r-card)] p-[var(--s6)] text-center" style={{ background: 'var(--surface)', color: 'var(--ink-3)', fontSize: 14 }}>
@@ -496,13 +502,20 @@ export default function VarlikPage() {
                             invEnriched={invEnriched} txs={txs} installments={installments} subscriptions={subscriptions}
                             goals={goals} goalSaved={goalSaved} bal={bal} range={range} setRange={setRange}
                             todayISO={todayISO} earliestTx={earliestTx} rates={rates}
-                            onEdit={requestEdit} onDelete={requestDelete} loanInfo={loanInfo} bare
+                            onEdit={requestEdit} onDelete={requestDelete} onReconcile={requestReconcile} loanInfo={loanInfo} bare
                         />
                     </div>
                 </div>
             )}
 
             <AccountModal isOpen={accountModalOpen} onClose={() => setAccountModalOpen(false)} onSuccess={() => { setAccountModalOpen(false); fetchAll() }} account={editingAccount as any} />
+            <ReconcileModal
+                isOpen={!!reconcileAcc}
+                account={reconcileAcc as any}
+                currentBalance={reconcileAcc ? bal(reconcileAcc.id) : 0}
+                onClose={() => setReconcileAcc(null)}
+                onSuccess={() => { setReconcileAcc(null); fetchAll() }}
+            />
             <LoanModal isOpen={loanModalOpen} onClose={() => setLoanModalOpen(false)} onSuccess={() => { setLoanModalOpen(false); fetchAll() }} />
             <DeleteConfirmModal
                 isOpen={deleteOpen} onClose={() => setDeleteOpen(false)} onConfirm={confirmDelete}
@@ -557,7 +570,7 @@ function DetailSection({ title, children }: { title: string; children: React.Rea
 
 // ── Sağ panel — hesap detayı ─────────────────────────────────────
 function DetailPanel(props: any) {
-    const { selected, accounts, cards, loans, invEnriched, txs, installments, subscriptions, goals, goalSaved, bal, range, setRange, todayISO, earliestTx, rates, onEdit, onDelete, loanInfo, bare } = props
+    const { selected, accounts, cards, loans, invEnriched, txs, installments, subscriptions, goals, goalSaved, bal, range, setRange, todayISO, earliestTx, rates, onEdit, onDelete, onReconcile, loanInfo, bare } = props
 
     // Ortak: seçili varlık
     const account: Account | undefined = accounts.find((a: Account) => a.id === selected.id)
@@ -670,7 +683,16 @@ function DetailPanel(props: any) {
                         <div className="truncate" style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{typeLabel}</div>
                     </div>
                 </div>
-                <div className="flex shrink-0 gap-[var(--s1)]">
+                <div className="flex shrink-0 items-center gap-[var(--s1)]">
+                    {isAccountLike && (
+                        <button
+                            onClick={onReconcile}
+                            className="inline-flex items-center px-[8px] py-[4px]"
+                            style={{ background: 'var(--surface-2)', color: 'var(--ink-2)', borderRadius: 'var(--r-pill)', fontSize: 11.5, fontWeight: 600 }}
+                        >
+                            Bakiye eşitle
+                        </button>
+                    )}
                     {(isAccountLike || selected.kind === 'loan') && (
                         <button onClick={onEdit} className="icon-btn p-1" aria-label="Düzenle"><Pencil className="h-4 w-4" /></button>
                     )}
