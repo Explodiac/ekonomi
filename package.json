@@ -10,7 +10,8 @@
     "test": "node --test 'src/lib/**/*.test.ts'",
     "backup": "bash scripts/backup.sh",
     "restore": "bash scripts/restore.sh",
-    "db:migrate": "bash scripts/db-migrate.sh"
+    "db:migrate": "bash scripts/db-migrate.sh",
+    "db:audit": "bash scripts/db-audit.sh"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",
