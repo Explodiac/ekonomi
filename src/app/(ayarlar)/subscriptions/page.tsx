@@ -317,6 +317,20 @@ export default function SubscriptionsPage() {
                                         <div className="tnum shrink-0 text-right" style={{ fontSize: 14.5, color: 'var(--ink)' }}>{formatTLsub(sub.amount)}</div>
                                     </Link>
                                     <div className="flex shrink-0 items-center gap-[var(--s1)]">
+                                        {sub.status === 'active' && (
+                                            <button
+                                                onClick={() => {
+                                                    setCurrentSubToPay(sub)
+                                                    setSelectedAccountId(accounts.find((a: any) => ['bank', 'cash', 'esnek_hesap'].includes(a.type))?.id || accounts[0]?.id || '')
+                                                    setIsPayModalOpen(true)
+                                                }}
+                                                className="px-[10px] py-[5px]"
+                                                style={{ background: overdue ? 'var(--accent)' : 'var(--surface-2)', color: overdue ? '#fff' : 'var(--ink-2)', borderRadius: 'var(--r-pill)', fontSize: 12, fontWeight: 600 }}
+                                                title="Ödendi olarak işaretle"
+                                            >
+                                                Öde
+                                            </button>
+                                        )}
                                         <button onClick={() => handleEditClick(sub)} className="icon-btn p-2" title="Düzenle"><Edit2 className="h-4 w-4" /></button>
                                         <button onClick={() => handleDelete(sub.id)} className="icon-btn p-2" title="Sil"><Trash2 className="h-4 w-4" /></button>
                                     </div>
