@@ -79,8 +79,7 @@ export const hedeflerTabs: SectionTab[] = [
 export const ayarTabs: SectionTab[] = [
     { name: "Kategoriler", href: "/settings" },
     { name: "Bütçe", href: "/budget" },
-    { name: "Abonelikler", href: "/subscriptions" },
-    { name: "Kontratlar", href: "/contracts" },
+    // Abonelikler ve Kontratlar ana menüye taşındı (kendi başlıkları).
     { name: "Tercihler", href: "/tercihler" },
     { name: "Veri", href: "/data-management" },
 ]

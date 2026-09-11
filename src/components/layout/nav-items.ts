@@ -1,6 +1,6 @@
 import {
     LayoutDashboard, Activity, CalendarRange, Banknote,
-    ArrowLeftRight, Landmark, Target, PieChart, Settings, type LucideIcon,
+    ArrowLeftRight, Landmark, Target, PieChart, Settings, Repeat, FileText, type LucideIcon,
 } from "lucide-react"
 
 export type NavItem = {
@@ -25,11 +25,15 @@ export const mainNav: NavItem[] = [
         name: "Hesaplar", href: "/varlik", icon: Landmark,
         match: ["/credit-cards", "/accounts", "/investments", "/simulations/asset-purchase"],
     },
+    // Ana menüde kendi başlıkları (Ayarlar'dan çıkarıldı). Sona eklendi ki
+    // mobil nav'ın mainNav[index] referansları kaymasın.
+    { name: "Abonelikler", href: "/subscriptions", icon: Repeat },
+    { name: "Kontratlar", href: "/contracts", icon: FileText },
 ]
 
 export const settingsNav: NavItem = {
     name: "Ayarlar", href: "/settings", icon: Settings,
-    match: ["/budget", "/subscriptions", "/contracts", "/tercihler", "/data-management"],
+    match: ["/budget", "/tercihler", "/data-management"],
 }
 
 // Mobil alt bar 5 öğe taşır; kalanlar "Daha fazla" altında.
@@ -44,6 +48,8 @@ export const mobileMore: NavItem[] = [
     mainNav[2], // Hedefler
     mainNav[3], // Akış
     mainNav[4], // Nakit
+    mainNav[8], // Abonelikler
+    mainNav[9], // Kontratlar
     settingsNav, // Ayarlar
 ]
 
