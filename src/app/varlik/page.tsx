@@ -642,9 +642,26 @@ function DetailPanel(props: any) {
     const cardInstallments = selected.kind === 'card' && account
         ? installments.filter((i: Installment) => i.kind === 'kart_taksidi' && i.account_id === account.id)
         : []
-    const cardStatementTotal = selected.kind === 'card' && account
-        ? txs.filter((t: Tx) => t.account_id === account.id && t.cash_date.slice(0, 7) === todayISO.slice(0, 7) && t.type === 'expense')
+    // Kart harcamasının YAPILDIĞI gün (transaction_date) esas. İki ayrı rakam:
+    // 1) Bu ay harcanan: takvim ayı içinde yapılan tüm kart harcaması.
+    // 2) Açık ekstre: son kesim gününden bugüne yapılanlar = sonraki son ödemede ödenecek.
+    const cardTxDay = (t: Tx) => (t.transaction_date || t.cash_date || '').slice(0, 10)
+    const thisMonthSpent = selected.kind === 'card' && account
+        ? txs.filter((t: Tx) => t.account_id === account.id && t.type === 'expense' && cardTxDay(t).slice(0, 7) === todayISO.slice(0, 7))
             .reduce((s: number, t: Tx) => s + Number(t.amount), 0)
+        : 0
+    const openStatementTotal = selected.kind === 'card' && account && account.cut_date
+        ? (() => {
+            const cut = Number(account.cut_date)
+            const [ty, tm, td] = todayISO.split('-').map(Number)
+            let cy = ty, cm = tm
+            if (td < cut) { cm -= 1; if (cm < 1) { cm = 12; cy -= 1 } } // kesim henüz geçmediyse önceki ayın kesimi
+            const lastDay = new Date(cy, cm, 0).getDate()
+            const cutDate = `${cy}-${String(cm).padStart(2, '0')}-${String(Math.min(cut, lastDay)).padStart(2, '0')}`
+            return txs.filter((t: Tx) => t.account_id === account.id && t.type === 'expense'
+                && cardTxDay(t) >= cutDate && cardTxDay(t) <= todayISO)
+                .reduce((s: number, t: Tx) => s + Number(t.amount), 0)
+        })()
         : 0
     // Karta bağlı 12 aylık yük (taksit ödemeleri, ay ay)
     const cardLoad12 = useMemo(() => {
@@ -797,7 +814,8 @@ function DetailPanel(props: any) {
                             <div className="space-y-[var(--s2)]" style={{ fontSize: 13.5 }}>
                                 {cutDay ? <DetailRow label="Kesim günü" value={<span className="tnum">Her ayın {cutDay}’i</span>} /> : null}
                                 {dueDay ? <DetailRow label="Son ödeme günü" value={<span className="tnum">Her ayın {dueDay}’i</span>} /> : null}
-                                <DetailRow label="Bu ayın harcaması" value={<span className="tnum" style={{ color: 'var(--flow-out)' }}>{formatTL(cardStatementTotal)}</span>} />
+                                <DetailRow label="Bu ay harcanan" value={<span className="tnum" style={{ color: 'var(--flow-out)' }}>{formatTL(thisMonthSpent)}</span>} />
+                                {account?.cut_date ? <DetailRow label="Açık ekstre" value={<span className="tnum" style={{ color: 'var(--flow-out)' }}>{formatTL(openStatementTotal)}</span>} /> : null}
                             </div>
                         </DetailSection>
                     )}
